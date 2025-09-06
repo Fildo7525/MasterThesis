@@ -2,7 +2,7 @@
 
 
 #### Paper link
-1. [Link to NextCloud]()
+1. [Link to NextCloud](https://nextcloud.sdu.dk/index.php/apps/files/files/295200519?dir=/Shared/Data/Papers&editing=false&openfile=true)
 2. [Springer paper link](https://link.springer.com/content/pdf/10.1007/s11119-009-9138-9.pdf)
 
 #### Some Interesting Cited papers
@@ -13,6 +13,11 @@ Links might include links to sci-hub for normally paid papers, do not share.
 4. [Colour based detection of volunteer potatoes as weeds in sugar beet fields using machine vision](https://sci-hub.se/https://doi.org/10.1007/s11119-007-9044-y)
 5. [Color indices for weed identification under various soil, residue and lighting conditions](https://sci-hub.se/https://doi.org/10.13031/2013.27838)
 6. [Bayesian statistical classifier](https://sci-hub.se/https://doi.org/10.13031/2013.30344)
+7. [A survey of image processing techniques for plant
+extraction and segmentation in the field](https://sci-hub.se/https://doi.org/10.1016/j.compag.2016.04.024.)
+8. [THE ACCURACY OF AUTOMATIC PHOTOGRAMMETRIC TECHNIQUES ON
+ULTRA-LIGHT UAV IMAGERY
+](https://isprs-archives.copernicus.org/articles/XXXVIII-1-C22/125/2011/isprsarchives-XXXVIII-1-C22-125-2011.pdf)
 
 #### Basic information about the paper
 - Volunteer potatos an increasing problem:
