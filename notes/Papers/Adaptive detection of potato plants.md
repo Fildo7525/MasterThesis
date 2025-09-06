@@ -19,6 +19,8 @@ extraction and segmentation in the field](https://sci-hub.se/https://doi.org/10.
 ULTRA-LIGHT UAV IMAGERY
 ](https://isprs-archives.copernicus.org/articles/XXXVIII-1-C22/125/2011/isprsarchives-XXXVIII-1-C22-125-2011.pdf)
 
+
+
 #### Basic information about the paper
 - Volunteer potatos an increasing problem:
 - Winter temperaturs not enough to kil tubers
