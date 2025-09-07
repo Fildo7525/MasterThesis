@@ -3,7 +3,6 @@
 
 #### Paper link
 1. [Link to NextCloud](https://nextcloud.sdu.dk/index.php/apps/files/files/295200519?dir=/Shared/Data/Papers&editing=false&openfile=true)
-2. [Springer paper link](https://link.springer.com/content/pdf/10.1007/s11119-009-9138-9.pdf)
 
 #### Some Interesting Cited papers
 Links might include links to sci-hub for normally paid papers, do not share.
@@ -73,6 +72,8 @@ $$
     B
 \end{bmatrix}
 $$
+
+__Where EG is excessive green, RB is red minus blue and I is intensity.__
 
 __The texture measure was calculated as the length of the edge segments within a grid cell.__ The length of the edge segments was calcualted after a Canny edge detection was applied.
 __The features 2. to 6. were used in the multivariate Bayesian classification.__ Two classes - volunteer potato and sugar beet. For both classes training features were stored in a buffer of 100 grid cells based on the following function to determine candisdate training cells, where : 

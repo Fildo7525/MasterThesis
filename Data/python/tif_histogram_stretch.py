@@ -7,16 +7,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def process_image(file_path, file_name, out_path):
-    """Read image, stretch histogram, save output."""
     img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
 
     if img is None:
-        print(f"⚠️ Could not read {file_path}")
+        print(f"Could not read {file_path}")
         return
 
     min_val, max_val = img.min(), img.max()
     if max_val == min_val:
-        print(f"⚠️ Skipping {file_path}, constant image")
+        print(f"Skipping {file_path}, constant image")
         return
 
     stretched = ((img - min_val) / (max_val - min_val) * 255).astype(np.uint8)
@@ -26,7 +25,6 @@ def process_image(file_path, file_name, out_path):
 
 
 def find_files(root):
-    """Find all TIFF files in a folder (non-recursive)."""
     exts = {'.tif', '.tiff', '.TIF', '.TIFF'}
     return [f for f in os.listdir(root) if Path(f).suffix in exts]
 
@@ -63,7 +61,7 @@ def main(argv=None):
             try:
                 future.result()
             except Exception as e:
-                print(f"❌ Error: {e}")
+                print(f"Error: {e}")
 
 
 if __name__ == "__main__":
