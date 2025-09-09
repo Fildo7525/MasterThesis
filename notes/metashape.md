@@ -20,6 +20,13 @@
 
 > !! Do test flights separately, GSD for TF1 is 1cm fro TF2 it is 0.5cm !!
 
+### In case of a crash
+
+1. Fix the camera calibration on the precomputed values
+2. Select unmatched points in the `Reference` tab
+3. Do `Align photos` again
+3. Optimise using the `star button` with the last parameter checked
+
 # Build DEM
 
 1. Switch poitcloud to tie points
