@@ -34,7 +34,7 @@ def main(argv=None):
     parser.add_argument('--root', type=str, required=True, help='Root directory to scan for images.')
     parser.add_argument('--out', type=str, required=True, help='Output directory (structure preserved).')
     parser.add_argument('--workers', type=int, default=8, help='Number of threads to use.')
-    
+
     args = parser.parse_args(argv)
 
     root = args.root
