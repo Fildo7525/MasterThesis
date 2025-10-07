@@ -6,6 +6,16 @@ ORTHO_IMG_DIR = Path("../Orthomosaics/")
 import numpy as np
 import rasterio
 from rasterio.windows import Window
+from enum import IntEnum
+
+class Bands(IntEnum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+    EXTEND_GREEN = 4
+    EXTEND_RED = 5
+    REDEDGE = 6
+    NIR = 7
 
 def convert_uint16_to_uint8(data):
     """
