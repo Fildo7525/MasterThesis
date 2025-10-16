@@ -29,9 +29,9 @@ $$
 NGRDI = \frac{G - R}{G + R}
 $$
 
-## PSRI - Plant Senescence Reflectance Index
+## PSRI - Plant Scene Reflectance Index
 
-- Used for health monitoring stress detecion of platn physiological and crop production and yield analysis
+- Used for health monitoring stress detecion of plant physiological and crop production and yield analysis
 
 $$
 PSRI = \frac{R - B}{NIR}

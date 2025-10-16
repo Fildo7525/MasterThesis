@@ -9,9 +9,9 @@ from pathlib import Path
 import numpy as np
 from argparse import ArgumentParser
 
-ORTHO_IMG_DIR = Path("../Orthomosaics/")
+ORTHO_IMG_DIR = Path("/home/samuel/Documents/code/Orthomosaics/")
 
-def proceess_tile(src, i, j):
+def proceess_tile(src, i, j, tile_size, output_dir):
     # Define pixel offsets
     x_off = j * tile_size
     y_off = i * tile_size
@@ -80,16 +80,18 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int):
         print(f"Tile size: {tile_size} px")
         print(f"Splitting into {n_cols} x {n_rows} tiles")
 
-        # Loop through tiles
-        # for i in range(n_rows):
-        #     for j in range(n_cols):
-        #         proceess_tile(src, i, j)
+       # Loop through tiles
+        for i in range(n_rows):
+            for j in range(n_cols):
+                proceess_tile(src, i, j, tile_size, output_dir)
 
     print("✅ Done splitting GeoTIFF!")
 
 if __name__ == "__main__":
     # Example usage
     tile_size = 1024
+
+    print(os.listdir(ORTHO_IMG_DIR))
 
     for img in ORTHO_IMG_DIR.glob("*.tif"):
         output_dir = ORTHO_IMG_DIR / f"{img.stem}_tiles"
