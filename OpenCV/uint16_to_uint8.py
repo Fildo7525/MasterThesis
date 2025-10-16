@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
-ORTHO_IMG_DIR = Path("../Orthomosaics/")
+ORTHO_IMG_DIR_INPUT = Path("davs://sapal24%40student.sdu.dk@nextcloud.sdu.dk/remote.php/webdav/Shared/Data/Orthomosaics")
+ORTHO_IMG_DIR_OUTPUT= Path("~/Documents/code")
 
 import numpy as np
 import rasterio
@@ -155,8 +156,8 @@ def process_orthomosaic(input_path, output_path, chunk_size=1024):
 
 
 if __name__ == "__main__":
-    input_tif = ORTHO_IMG_DIR / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif"   # path to your input
-    output_tif = ORTHO_IMG_DIR / "RGB2_20250827_Bjørnkjærvej_TestFlight_2_mid.tif"
+    input_tif = ORTHO_IMG_DIR_INPUT / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif"   # path to your input
+    output_tif = ORTHO_IMG_DIR_OUTPUT / "RGB2_20250827_Bjørnkjærvej_TestFlight_2_mid.tif"
     process_orthomosaic(input_tif, output_tif, chunk_size=1024)
     print(f"Output saved to: {output_tif}")
 
