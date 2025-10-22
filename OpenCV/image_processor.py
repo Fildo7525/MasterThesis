@@ -33,13 +33,13 @@ class ImageProcessor:
     def set_output_path(self, path: Path): self.output_path = path
     def set_mask_path(self, path: Path): self.mask_path = path
 
-    def separate_band(self, input_path: Path, output_path: Path, band: Bands): 
+    def separate_band(self, input_path: Path, output_path: Path, band: Bands):
         self.ensure_dirs(output_path)
         print(f"Separating band {band.name} for image {input_path}")
-        input_path_copy = input_path / input_path 
+        input_path_copy = input_path / input_path
         name = Path(input_path).stem
 
-        with rasterio.open(input_path_copy) as src: 
+        with rasterio.open(input_path_copy) as src:
             img = src.read(band.value)
             if img.dtype != np.uint8:
                 img = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
