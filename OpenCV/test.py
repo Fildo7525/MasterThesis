@@ -14,9 +14,9 @@ INPUT_DIR = Path("/home/samuel/Documents/code")
 OUTPUT_DIR = Path("/home/samuel/Documents/code")
 MASK_DIR = Path("/home/samuel/Documents/code/masks")
 
-KERNEL_SIZE = [3, 15]   # [erode, dilate]
+KERNEL_SIZE = [3, 10]   # [erode, dilate]
 THRESH_BOUNDS = [80, 255]
-TILE_SIZE = 1024
+TILE_SIZE = 640
 # ---------------------------------------------------------------------
 
 
@@ -43,7 +43,7 @@ class ImageProcessor:
             img = src.read(band.value)
             if img.dtype != np.uint8:
                 img = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-            cv.imwrite(output_path / f"{name}_{band.name}.tif" , img)
+            cv.imwrite(str(output_path / f"{name}_{band.name}.tif") , img)
 
     # --- Image Splitting ---
     def split_image(self, tile_size: int = 1024):
@@ -165,13 +165,16 @@ def process_images():
     # Split image into tiles
     proc.split_image(TILE_SIZE)
 
-    # # Generate indices (optional)
+        # Generate indices (optional)
     for img in sorted(os.listdir(proc.output_path)):
         proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
 
     for img in sorted(os.listdir(proc.output_path)):
-        proc.separate_band(proc.output_path / img, OUTPUT_DIR / "RE", Bands.REDEDGE)
+        proc.separate_band(proc.output_path / img, OUTPUT_DIR / "re", Bands.REDEDGE)
 
+
+    for img in sorted(os.listdir(proc.output_path)):
+        proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR)
 
     # Create and apply NIR masks
     proc.set_input_path(INPUT_DIR / "nir")
