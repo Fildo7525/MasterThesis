@@ -79,9 +79,8 @@ def calculate_all_indices(input_path, output_path):
         meta.update(dtype=rasterio.float32, count=1)
 
         for index in Indices:
-            print(f"Calculating {index.name}...")
 
-            output_path_copy = output_path / str(index)
+            output_path_copy = output_path / str(index.name)
             os.makedirs(output_path_copy, exist_ok=True)
 
             bands = [src.read(i).astype(np.float32) for i in range(1, src.count + 1)]
@@ -93,10 +92,10 @@ def calculate_all_indices(input_path, output_path):
 
 
 def calculate_index(input_path, output_path, index: Indices):
-    
+
     if index.name not in Indices.__members__:
         return None
-    
+
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)

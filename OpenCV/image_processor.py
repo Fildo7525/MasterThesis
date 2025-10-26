@@ -166,15 +166,16 @@ def process_images():
     proc.split_image(TILE_SIZE)
 
     # # Generate indices (optional)
-    for img in sorted(os.listdir(proc.output_path)):
-        proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
+    if not (OUTPUT_DIR / "image_tiles_indeces").exists() or True:
+        for img in sorted(os.listdir(proc.output_path)):
+            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
 
-    for img in sorted(os.listdir(proc.output_path)):
-        proc.separate_band(proc.output_path / img, OUTPUT_DIR / "RE", Bands.REDEDGE)
-
+    if not (OUTPUT_DIR / "nir").exists() or True:
+        for img in sorted(os.listdir(proc.output_path)):
+            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR)
 
     # Create and apply NIR masks
-    proc.set_input_path(INPUT_DIR / "nir")
+    proc.set_input_path(OUTPUT_DIR / "nir")
     proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
     for img_name in sorted(os.listdir(proc.input_path)):
@@ -183,7 +184,7 @@ def process_images():
     apply_masks(proc, "NIR_MASKS")
 
     # Create and apply RVI masks
-    proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "Indices.RVI")
+    proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "RVI")
     proc.set_mask_path(MASK_DIR / "RVI_MASKS")
 
     for img_name in sorted(os.listdir(proc.input_path)):
