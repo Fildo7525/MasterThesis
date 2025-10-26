@@ -41,7 +41,8 @@ class MaskToYOLOOBBConverter:
                  class_names=None,
                  train_split=0.7,
                  val_split=0.15,
-                 method='minAreaRect'):
+                 method='minAreaRect',
+                 visualise = False):
         """
         Initialize the OBB converter.
 
@@ -64,6 +65,7 @@ class MaskToYOLOOBBConverter:
         self.train_split = train_split
         self.val_split = val_split
         self.test_split = 1.0 - train_split - val_split
+        self.visualise = visualise
 
         if self.test_split < 0:
             raise ValueError(f"train_split + val_split cannot exceed 1.0")
@@ -81,7 +83,8 @@ class MaskToYOLOOBBConverter:
             self.output_dir / 'images' / 'test',
             self.output_dir / 'labels' / 'train',
             self.output_dir / 'labels' / 'val',
-            self.output_dir / 'labels' / 'test'
+            self.output_dir / 'labels' / 'test',
+            self.output_dir / 'visulaisation'
         ]
 
         for d in dirs:
@@ -343,6 +346,16 @@ class MaskToYOLOOBBConverter:
                 # print(f"⚠️  No valid OBBs found in {mask_path.name}, skipping...")
                 skipped += 1
                 continue
+
+            # Save the original image with the bounding boxes as a new image
+            if self.visualise:
+                img = cv2.imread(img_path)
+                for anot in yolo_obb_annotations:
+                    annotation = anot.split()
+                    points = np.array(annotation[1:], dtype=np.float32).reshape(-1, 2) * img.shape[0]
+                    img = cv2.rectangle(img, points.min(axis=0).astype(int), points.max(axis=0).astype(int), (0, 255, 0), 2)
+
+                cv2.imwrite(str(self.output_dir / 'visulaisation' / img_path.name), img)
 
             # Copy image to output
             output_img_path = self.output_dir / 'images' / split_name / img_path.name
