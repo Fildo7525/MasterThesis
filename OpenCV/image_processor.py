@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 
 import os
 from pathlib import Path
@@ -7,6 +8,7 @@ import rasterio
 from image_splitter import split_geotiff
 from create_indexes import calculate_all_indices, calculate_index, Bands, Indices
 from typing import Tuple
+from tqdm import tqdm
 
 
 # ----------------------------- CONFIG --------------------------------
@@ -42,14 +44,16 @@ class ImageProcessor:
         with rasterio.open(input_path_copy) as src:
             img = src.read(band.value)
             if img.dtype != np.uint8:
-                img = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-            cv.imwrite(output_path / f"{name}_{band.name}.tif" , img)
+                cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+
+            out = output_path / f"{name}_{band.name}.tif"
+            cv.imwrite(str(out) , img)
 
     # --- Image Splitting ---
     def split_image(self, tile_size: int = 1024):
         try:
             print(f"Splitting {self.input_path} into tiles...")
-            split_geotiff(self.input_path, self.output_path, tile_size)
+            split_geotiff(self.input_path, self.output_path, tile_size, overlap=100)
         except Exception as e:
             print(f"[ERROR] Failed to split image: {e}")
 
@@ -71,7 +75,13 @@ class ImageProcessor:
         self.ensure_dirs(output_path)
         try:
             original = cv.imread(str(original_img_path), cv.IMREAD_UNCHANGED)
+            if original is None:
+                raise FileNotFoundError(f"Original image not found: {original_img_path}")
+
             mask = cv.imread(str(mask_img_path), cv.IMREAD_UNCHANGED)
+            if mask is None:
+                raise FileNotFoundError(f"Mask not found: {mask_img_path}")
+
             if mask.ndim == 3:
                 mask = mask[:, :, 0]
 
@@ -79,12 +89,13 @@ class ImageProcessor:
 
             name = Path(original_img_path).stem + ".tif"
             cv.imwrite(str(output_path / name), result)
-            print(f"Mask applied: {name}")
+            # print(f"Mask applied: {name}")
+
         except Exception as e:
             print(f"[ERROR] Mask application failed for {original_img_path}: {e}")
 
     def calculate_mask_from_rgb(self, do_erode: bool, do_dilate: bool,
-                                kernel_size: Tuple[int, int], input_path: Path = None) -> np.ndarray:
+                                kernel_size: Tuple[int, int], input_path: Path | None = None) -> np.ndarray:
         """Create vegetation mask from RGB image using HSV filtering."""
         input_path = input_path or self.input_path
         mask_dir = self.mask_path / "masks"
@@ -98,7 +109,7 @@ class ImageProcessor:
 
         # Normalize for display
         if img.dtype != np.uint8:
-            img = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+            img = cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
 
         hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
         lower_green = np.array([35, 40, 40])
@@ -111,12 +122,12 @@ class ImageProcessor:
 
         cv.imwrite(str(mask_dir / f"{name}_rgb_mask.tif"), mask)
         cv.imwrite(str(orig_dir / f"{name}_rgb_original.tif"), img)
-        print(f"RGB mask saved for {name}")
+        # print(f"RGB mask saved for {name}")
         return mask
 
     def calculate_mask_from_band(self, do_erode: bool, do_dilate: bool,
                                  kernel_size: Tuple[int, int], bounds: Tuple[int, int],
-                                 input_path: Path = None) -> np.ndarray:
+                                 input_path: Path | None = None) -> np.ndarray:
         """Threshold single-band image to create mask."""
         input_path = input_path or self.input_path
         mask_dir = self.mask_path / "masks"
@@ -125,6 +136,8 @@ class ImageProcessor:
 
         name = Path(input_path).stem
         img = cv.imread(str(input_path), cv.IMREAD_UNCHANGED)
+        if img is None:
+            raise FileNotFoundError(f"Image not found: {input_path}")
 
         if img.ndim == 3:
             img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
@@ -165,21 +178,21 @@ def process_images():
     # Split image into tiles
     proc.split_image(TILE_SIZE)
 
-    # # Generate indices (optional)
+    # Generate indices (optional)
     if not (OUTPUT_DIR / "image_tiles_indeces").exists() or True:
-        for img in sorted(os.listdir(proc.output_path)):
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
             proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
 
     if not (OUTPUT_DIR / "nir").exists() or True:
-        for img in sorted(os.listdir(proc.output_path)):
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
             proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR)
 
     # Create and apply NIR masks
     proc.set_input_path(OUTPUT_DIR / "nir")
     proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
-    for img_name in sorted(os.listdir(proc.input_path)):
-        mask = proc.calculate_mask_from_band(True, True, KERNEL_SIZE, [180,255], proc.input_path / img_name)
+    for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
+        mask = proc.calculate_mask_from_band(True, True, KERNEL_SIZE, (180,255), proc.input_path / img_name)
 
     apply_masks(proc, "NIR_MASKS")
 
@@ -187,16 +200,27 @@ def process_images():
     proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "RVI")
     proc.set_mask_path(MASK_DIR / "RVI_MASKS")
 
-    for img_name in sorted(os.listdir(proc.input_path)):
+    for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
         mask = proc.calculate_mask_from_band(True, True, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
 
     apply_masks(proc, "RVI_MASKS")
+
+    # Create and apply NGRDI masks
+    proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "NGRDI")
+    proc.set_mask_path(MASK_DIR / "NGRDI_MASKS")
+    os.makedirs(proc.input_path, exist_ok=True)
+    os.makedirs(proc.mask_path, exist_ok=True)
+
+    for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
+        mask = proc.calculate_mask_from_band(True, True, KERNEL_SIZE, (100,255), proc.input_path / img_name)
+
+    apply_masks(proc, "NGRDI_MASKS")
 
     # Create and apply RGB masks
     proc.set_input_path(OUTPUT_DIR / "image_tiles")
     proc.set_mask_path(MASK_DIR / "RGB_MASKS")
 
-    for img_name in sorted(os.listdir(proc.input_path)):
+    for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RGB masks"):
         mask = proc.calculate_mask_from_rgb(True, True, KERNEL_SIZE, proc.input_path / img_name)
 
     apply_masks(proc, "RGB_MASKS")
@@ -209,7 +233,12 @@ def apply_masks(proc: ImageProcessor, mask_folder_name: str):
     orig_dir = base_dir / "originals"
     out_dir = base_dir / "applied_masks"
 
-    for mask_name, orig_name in zip(sorted(os.listdir(mask_dir)), sorted(os.listdir(orig_dir))):
+    os.makedirs(base_dir, exist_ok=True)
+    os.makedirs(mask_dir, exist_ok=True)
+    os.makedirs(orig_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
+
+    for mask_name, orig_name in tqdm(zip(sorted(os.listdir(mask_dir)), sorted(os.listdir(orig_dir))), desc=f"Applying masks {mask_folder_name}"):
         mask_path = mask_dir / mask_name
         orig_path = orig_dir / orig_name
         proc.apply_mask(orig_path, mask_path, out_dir)
