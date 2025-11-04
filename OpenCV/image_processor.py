@@ -13,12 +13,14 @@ from tqdm import tqdm
 
 
 # ----------------------------- CONFIG --------------------------------
-INPUT_DIR = Path("/home/samuel/Documents/code")
-OUTPUT_DIR = Path("/home/samuel/Documents/code")
-MASK_DIR = Path("/home/samuel/Documents/code/masks")
 
-KERNEL_SIZE = [3, 15]   # [erode, dilate]
-THRESH_BOUNDS = [80, 255]
+HOME_DIR = Path.home()
+INPUT_DIR = HOME_DIR / Path("SDU/MasterThesis/Orthomosaics")
+OUTPUT_DIR = INPUT_DIR / Path("processed_output")
+MASK_DIR = INPUT_DIR / Path("masks")
+
+KERNEL_SIZE: Tuple[int, int] = (3, 15)   # [erode, dilate]
+THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024
 # ---------------------------------------------------------------------
 
