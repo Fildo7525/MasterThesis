@@ -11,3 +11,7 @@ Orthomosaics
 MasterThesisImages.tar.xz
 OpenCV/20250827_Bjørnkjærvej_TestFlight_2_mid_RGB_uint8.tif.aux.xml
 OpenCV/__pycache__
+AI/YOLO/labels
+AI/YOLO/dataset.yaml
+runs/obb
+AI/yolo11n.pt

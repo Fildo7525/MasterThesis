@@ -30,6 +30,8 @@ class Indices(IntEnum):
     SAVI = 12
     OSAVI = 13
     MSAVI2 = 14
+    MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
 
 
 # -------- Index Formulas --------
@@ -58,6 +60,8 @@ def compute_index(name, bands):
         "SAVI": lambda: (NIR-R)*(1+L)/(NIR+R+L),
         "OSAVI": lambda: (NIR - R)/(NIR + R + 0.16),
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
+        "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
+        "NGRVI": lambda: (G**2 + R**2) / (G**2 - R**2 + eps),
     }
 
     if name not in formulas:
@@ -79,9 +83,8 @@ def calculate_all_indices(input_path, output_path):
         meta.update(dtype=rasterio.float32, count=1)
 
         for index in Indices:
-            print(f"Calculating {index.name}...")
 
-            output_path_copy = output_path / str(index)
+            output_path_copy = output_path / str(index.name)
             os.makedirs(output_path_copy, exist_ok=True)
 
             bands = [src.read(i).astype(np.float32) for i in range(1, src.count + 1)]
@@ -93,10 +96,10 @@ def calculate_all_indices(input_path, output_path):
 
 
 def calculate_index(input_path, output_path, index: Indices):
-    
+
     if index.name not in Indices.__members__:
         return None
-    
+
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
