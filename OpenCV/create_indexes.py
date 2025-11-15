@@ -22,7 +22,11 @@ class Indices(IntEnum):
     # Used to enhance the detection and analysis of green vegetation
     GNDVI = 4
     RVI = 5
-    TVI = 6
+
+    # Indicate the relationship between the absorbed radiant energy by vegetation and the reflectance in red,
+    # green, and near-infrared bands, useful for monitoring crop biomass
+    TVI = 6 # Triangle Vegetation Index
+
     NDRE = 7
     CVI = 8
     CIG = 9
@@ -70,6 +74,18 @@ class Indices(IntEnum):
     #Common vegetation index for assessing vegetation quantity
     SR = 28 # Simple Ratio Index
 
+    # Evaluate chlorophyll content and plant health
+    TCARI = 29 # Transformed Chlorophyll Absorption in Reflectance Index
+
+    # Reduce the impact of atmospheric conditions on vegetation index calculations
+    VARI = 30 # Visible Atmospherically Resistant Index
+
+    # Utilize differences in the visible spectrum to assess vegetation health and coverage
+    VDVI = 31 # Visible Difference Vegetation Index
+
+    # Vegetation index based on RGB channel information, used to estimate grassland vegetation coverage
+    VEG = 32 # Vegetation Index
+
 
 # -------- Index Formulas --------
 def compute_index(name, bands):
@@ -80,6 +96,7 @@ def compute_index(name, bands):
     NIR = bands[Bands.NIR - 1]
 
     eps = 1e-5
+    lmbda = 0.667
     L = 0.5
 
     formulas = {
@@ -110,7 +127,11 @@ def compute_index(name, bands):
         "SIPI": lambda: (NIR - B) / (NIR - R + eps),
         "SR": lambda: NIR / (R + eps),
         "SVI": lambda: (NIR - G) / (NIR + G + eps),
+        "TCARI": lambda: 3 * ((RE - R) - 0.2 * (RE - G) * (RE / (R + eps))),
         "TVI": lambda: np.sqrt(np.abs((NIR - R) / (NIR + R + eps) + 0.5)),
+        "VARI": lambda: (G - R) / (G + R - B + eps),
+        "VDVI": lambda: (2*G - (R + B)) / (2*G + (R + B) + eps),
+        "VEG": lambda: G / (R**lmbda * B**(1 - lmbda) + eps),
     }
 
     if name not in formulas:
