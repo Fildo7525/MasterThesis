@@ -19,6 +19,7 @@ class Indices(IntEnum):
     NDVI = 1
     SVI = 2
     NGRDI = 3
+    # Used to enhance the detection and analysis of green vegetation
     GNDVI = 4
     RVI = 5
     TVI = 6
@@ -32,6 +33,42 @@ class Indices(IntEnum):
     MSAVI2 = 14
     MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
     NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
+
+    #Reflects the color characteristics of vegetation, can be used to identify vegetation types and estimate biomass
+    CIVE = 17 # Color Index of Vegetation Extraction (https://doi.org/10.1016/j.rse.2008.06.006)
+
+    # Reduces the influence of atmospheric and soil noise, providing a stable response to the vegetation condition in the measured area
+    EVI = 18  # Enhanced Vegetation Index (https://doi.org/10.1016/S0034-4257(96)00066-3)
+
+    # Used for detecting vegetation
+    EXG = 19  # Excess Green Index
+
+    # Can effectively distinguish green vegetation from non-vegetated areas in complex backgrounds
+    EXGR = 20 # Excess Green-Red Index
+
+    # Used for detecting non-vegetated areas
+    EXR = 21 # Excess Red Index
+
+    # Enhances vegetation signals while reducing atmospheric interference and soil background noise
+    MSRI = 22 # Modified Soil-Adjusted Vegetation Index
+
+    # Identify vegetated areas and reflect their health status
+    NGBDI = 23 # Normalized Green-Blue Difference Index
+
+    # Assess chlorophyll content and photosynthetic capacity of plants
+    NPCI = 24 # Normalized Pigment Chlorophyll Index
+
+    # Evaluate the leaf area index and biomass vegetation index
+    RTVICore = 25 # Red-Edge Triangular Vegetation Index Core
+
+    # Source Address Validation Improvement
+    SAVI2 = 26 # Source Address Validation Improvement
+
+    # Monitor vegetation health, detect plant physiological stress, and analyze crop yield
+    SIPI = 27 # Structure Insensitive Pigment Index
+
+    #Common vegetation index for assessing vegetation quantity
+    SR = 28 # Simple Ratio Index
 
 
 # -------- Index Formulas --------
@@ -62,6 +99,18 @@ def compute_index(name, bands):
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
         "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
         "NGRVI": lambda: (G**2 + R**2) / (G**2 - R**2 + eps),
+        "CIVE": lambda: 0.441*B - 0.881*G + 0.385*R + 18.78745,
+        "EVI": lambda: 2.5 * (NIR - R), # / (NIR + 6 * R - 7.5 * B + 1 + eps),
+        "EXG": lambda: 2 * G - R - B,
+        "EXGR": lambda: 2 * G - 2.4 * R,
+        "EXR": lambda: 1.4 * R - B,
+        "MSRI": lambda: ((NIR - R) - 1) / np.sqrt(NIR / R + 1),
+        "NGBDI": lambda: (G - B) / (G + B + eps),
+        "NPCI": lambda: (R - B) / (R + B + eps),
+        "RTVICore": lambda: 100 * (NIR - RE) - 10 * (NIR - G),
+        "SAVI2": lambda: (NIR - R) / (NIR + R + 0.5) * 1.5,
+        "SIPI": lambda: (NIR - B) / (NIR - R + eps),
+        "SR": lambda: NIR / (R + eps),
     }
 
     if name not in formulas:
