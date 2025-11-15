@@ -30,6 +30,8 @@ class Indices(IntEnum):
     SAVI = 12
     OSAVI = 13
     MSAVI2 = 14
+    MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
 
 
 # -------- Index Formulas --------
@@ -58,6 +60,8 @@ def compute_index(name, bands):
         "SAVI": lambda: (NIR-R)*(1+L)/(NIR+R+L),
         "OSAVI": lambda: (NIR - R)/(NIR + R + 0.16),
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
+        "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
+        "NGRVI": lambda: (G**2 + R**2) / (G**2 - R**2 + eps),
     }
 
     if name not in formulas:
