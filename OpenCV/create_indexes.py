@@ -32,14 +32,11 @@ class Indices(IntEnum):
     CIG = 9
     CIRE = 10
     DVI = 11
-    VDVI = 12
-    SAVI = 13
-    OSAVI = 14
-    MSAVI2 = 15
-    MGRVI = 16 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
-    NGRVI = 17 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
-    EXG = 18
-    EXR = 19
+    SAVI = 12
+    OSAVI = 13
+    MSAVI2 = 14
+    MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
 
     #Reflects the color characteristics of vegetation, can be used to identify vegetation types and estimate biomass
     CIVE = 17 # Color Index of Vegetation Extraction (https://doi.org/10.1016/j.rse.2008.06.006)
@@ -144,7 +141,7 @@ def compute_index(name, bands):
 
 
 # -------- Processing --------
-def calculate_all_indices(input_path, output_path):
+def calculate_all_indices(input_path, output_path, indices):
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -155,8 +152,7 @@ def calculate_all_indices(input_path, output_path):
         meta = src.profile
         meta.update(dtype=rasterio.float32, count=1)
 
-        for index in Indices:
-
+        for index in indices:
             output_path_copy = output_path / str(index.name)
             os.makedirs(output_path_copy, exist_ok=True)
 
@@ -183,8 +179,6 @@ def calculate_index(input_path, output_path, index: Indices):
         meta = src.profile
         meta.update(dtype=rasterio.float32, count=1)
 
-        print(f"Calculating {index.name}...")
-
         output_path_copy = output_path / str(index)
         os.makedirs(output_path_copy, exist_ok=True)
 
@@ -202,4 +196,4 @@ if __name__ == "__main__":
     input_tif = DIR_PATH / "tile_1_1.tif"
     output_dir = DIR_PATH / "indices_output"
 
-    calculate_all_indices(input_tif, output_dir)
+    calculate_all_indices(input_tif, output_dir, Indices)
