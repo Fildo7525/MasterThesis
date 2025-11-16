@@ -14,7 +14,7 @@ import json
 # ----------------------------- CONFIG --------------------------------
 
 HOME_DIR = Path.home()
-INPUT_DIR =  Path("/home/samuel/Orthomosaics")
+INPUT_DIR = HOME_DIR / Path("SDU/MasterThesis/Orthomosaics")
 OUTPUT_DIR = INPUT_DIR / Path("processed_output")
 MASK_DIR = INPUT_DIR / Path("masks")
 
@@ -368,15 +368,6 @@ class ImageProcessor:
 #                            MAIN WORKFLOW
 # ---------------------------------------------------------------------
 def process_images():
-    proc = ImageProcessor(
-        input_path=INPUT_DIR / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        output_path=OUTPUT_DIR / "image_tiles",
-        mask_path=MASK_DIR
-    )
-
-    # Split image into tiles
-    proc.split_image(TILE_SIZE)
-
     ##################################
     # Load what indices to calculate #
     ##################################
@@ -389,17 +380,24 @@ def process_images():
         for index_name in Indices.__members__:
             if config.get(index_name, False):
                 indices_to_calculate.append(Indices[index_name])
-            else:
-                print(f"[WARNING] Index {index_name} not recognized; skipping.")
 
     print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
+
+    proc = ImageProcessor(
+        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+        output_path=HOME_DIR / config.get("output_path", "") /  "image_tiles",
+        mask_path=HOME_DIR / config.get("mask_path", "")
+    )
+
+    # Split image into tiles
+    proc.split_image(TILE_SIZE)
 
     # ###############################
     # # Generate indices (optional) #
     # ###############################
 
     dir: Path = OUTPUT_DIR / "rgb"
-    if recalculate:
+    if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
             proc.recreate_original_rgb_image(proc.output_path / img, OUTPUT_DIR / "rgb")
 
@@ -425,7 +423,7 @@ def process_images():
         print("EXTENDED_GREEN band separation skipped; output directory already exists.")
 
     dir: Path = OUTPUT_DIR / "image_tiles_indeces"
-    if not dir.exists():
+    if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
             proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
     else:

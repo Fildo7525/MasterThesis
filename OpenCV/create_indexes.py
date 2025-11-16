@@ -32,14 +32,11 @@ class Indices(IntEnum):
     CIG = 9
     CIRE = 10
     DVI = 11
-    VDVI = 12
-    SAVI = 13
-    OSAVI = 14
-    MSAVI2 = 15
-    MGRVI = 16 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
-    NGRVI = 17 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
-    EXG = 18
-    EXR = 19
+    SAVI = 12
+    OSAVI = 13
+    MSAVI2 = 14
+    MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
 
     #Reflects the color characteristics of vegetation, can be used to identify vegetation types and estimate biomass
     CIVE = 17 # Color Index of Vegetation Extraction (https://doi.org/10.1016/j.rse.2008.06.006)
