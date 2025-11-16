@@ -27,11 +27,14 @@ class Indices(IntEnum):
     CIG = 9
     CIRE = 10
     DVI = 11
-    SAVI = 12
-    OSAVI = 13
-    MSAVI2 = 14
-    MGRVI = 15 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
-    NGRVI = 16 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    VDVI = 12
+    SAVI = 13
+    OSAVI = 14
+    MSAVI2 = 15
+    MGRVI = 16 # Modified Green-Red Vegetation Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    NGRVI = 17 # New Green-Red Vegetaion Index (https://doi.org/10.1016/j.jag.2019.01.001)
+    EXG = 18
+    EXR = 19
 
 
 # -------- Index Formulas --------
@@ -57,11 +60,14 @@ def compute_index(name, bands):
         "CIG": lambda: (NIR / (G + eps)) - 1,
         "CIRE": lambda: (NIR / (RE + eps)) - 1,
         "DVI": lambda: NIR - R,
+        "VDVI": lambda: (2*G - R - B) / (2*G + R + B),
         "SAVI": lambda: (NIR-R)*(1+L)/(NIR+R+L),
         "OSAVI": lambda: (NIR - R)/(NIR + R + 0.16),
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
         "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
         "NGRVI": lambda: (G**2 + R**2) / (G**2 - R**2 + eps),
+        "EXG": lambda: (2*G - R - B),
+        "EXR": lambda: (1.4*R - G),
     }
 
     if name not in formulas:

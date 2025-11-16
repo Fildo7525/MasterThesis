@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 from pathlib import Path
 import numpy as np
@@ -10,16 +8,16 @@ from image_splitter import split_geotiff
 from create_indexes import calculate_all_indices, calculate_index, Bands, Indices
 from typing import Tuple
 from tqdm import tqdm
-
+from enum import IntEnum
 
 # ----------------------------- CONFIG --------------------------------
 
 HOME_DIR = Path.home()
-INPUT_DIR = HOME_DIR / Path("SDU/MasterThesis/Orthomosaics")
+INPUT_DIR =  Path("/home/samuel/Orthomosaics")
 OUTPUT_DIR = INPUT_DIR / Path("processed_output")
 MASK_DIR = INPUT_DIR / Path("masks")
 
-KERNEL_SIZE: Tuple[int, int] = (3, 15)   # [erode, dilate]
+KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024
 # ---------------------------------------------------------------------
@@ -29,6 +27,10 @@ class NENInputBands:
     ngrdi_path: Path
     extended_red_path: Path
     nir_path: Path
+
+class Alignment(IntEnum):
+    MATCH_TEMPLATE = 0
+    MATCH_ORB = 1
 
 
 class ImageProcessor:
@@ -44,7 +46,104 @@ class ImageProcessor:
     def set_output_path(self, path: Path): self.output_path = path
     def set_mask_path(self, path: Path): self.mask_path = path
 
-    def separate_band(self, input_path: Path, output_path: Path, band: Bands):
+    def __helper_combine_bands_to_rgb(self, input_path: Path | None = None):
+
+        if input_path == None:
+            return None 
+        
+        with rasterio.open(input_path) as src:
+            red, green, blue = src.read(1), src.read(2), src.read(3)
+            red = self.normalize_tile(red)
+            green = self.normalize_tile(green)
+            blue = self.normalize_tile(blue)
+            rgb_img = np.dstack((red, green, blue))
+            rgb_img = cv.cvtColor(rgb_img, cv.COLOR_BGR2RGB)
+
+        rgb_img = np.dstack((red, green, blue))
+        rgb_img = cv.cvtColor(rgb_img, cv.COLOR_BGR2RGB)
+        return rgb_img
+
+
+    def recreate_original_rgb_image(self, input_path: Path | None = None, out_put_path: Path | None = None, ) -> np.ndarray:
+        """Create vegetation mask from RGB image using HSV filtering."""
+        input_path = input_path or self.input_path
+        self.ensure_dirs(out_put_path)
+
+        name = Path(input_path).stem
+        img = self.__helper_combine_bands_to_rgb(input_path)
+        cv.imwrite(str(out_put_path / f"{name}_rgb.tif"), img)
+
+    def align_to_rgb_match_template(self,rgb_image, other_image):
+        rgb_gray = cv.cvtColor(rgb_image, cv.COLOR_BGR2GRAY)
+
+        if other_image.ndim == 3:
+            other_image = cv.cvtColor(other_image, cv.COLOR_BGR2GRAY)
+
+        result = cv.matchTemplate(rgb_gray, other_image, cv.TM_CCOEFF_NORMED)
+        _, _, _, max_loc = cv.minMaxLoc(result)
+
+        dx, dy = max_loc
+        print(f"Shift: dx={dx}, dy={dy}")
+
+        rows, cols = other_image.shape
+        M = np.float32([[1, 0, dx], [0, 1, dy]])
+        aligned_other = cv.warpAffine(other_image, M, (cols, rows))
+        return aligned_other
+    
+    def align_to_rgb_ORB(self, rgb, other):
+
+        rgb_gray = cv.cvtColor(rgb, cv.COLOR_BGR2GRAY)
+        other_gray = other if other.ndim == 2 else cv.cvtColor(other, cv.COLOR_BGR2GRAY)
+
+        orb = cv.ORB_create(1500)
+        kp1, des1 = orb.detectAndCompute(rgb_gray, None)
+        kp2, des2 = orb.detectAndCompute(other_gray, None)
+
+        # --- Safety: ensure both images have keypoints ---
+        if des1 is None or des2 is None or len(kp1) < 4 or len(kp2) < 4:
+            print("[WARN] Not enough ORB features, skipping alignment.")
+            return other
+
+        # --- Matching ---
+        bf = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
+        matches = bf.knnMatch(des1, des2, k=2)
+
+        # Ratio test
+        good = []
+        for m, n in matches:
+            if m.distance < 0.75 * n.distance:
+                good.append(m)
+
+        # --- Safety: need at least 3 point pairs for affine ---
+        if len(good) < 3:
+            print(f"[WARN] Only {len(good)} good matches. Skipping alignment.")
+            return other
+
+        src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+        dst_pts = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+
+        # Safety: same lengths?
+        if len(src_pts) != len(dst_pts):
+            print("[WARN] Mismatch in point counts, skipping alignment.")
+            return other
+
+        # --- Estimate transform ---
+        M, inliers = cv.estimateAffinePartial2D(dst_pts, src_pts)
+
+        # If transform failed
+        if M is None:
+            print("[WARN] estimateAffinePartial2D failed. Skipping alignment.")
+            return other
+
+        h, w = rgb_gray.shape
+        return cv.warpAffine(other, M, (w, h))
+        
+    def normalize_tile(self,img):
+        img = img.astype(np.float32)
+        return cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+
+
+    def separate_band(self, input_path: Path, output_path: Path, band: Bands, do_alignment: int = -1):
         self.ensure_dirs(output_path)
         print(f"Separating band {band.name} for image {input_path}")
         input_path_copy = input_path / input_path
@@ -52,8 +151,21 @@ class ImageProcessor:
 
         with rasterio.open(input_path_copy) as src:
             img = src.read(band.value)
+            img = self.normalize_tile(img)
             if img.dtype != np.uint8:
                 cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+            
+            if do_alignment == Alignment.MATCH_TEMPLATE:
+                print("Doing match template alignment")
+                rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
+                rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
+                img = self.align_to_rgb_match_template(rgb_img, img)
+
+            elif do_alignment == Alignment.MATCH_ORB:
+                print("Doing ORB alignment")
+                rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
+                rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
+                img = self.align_to_rgb_ORB(rgb_img, img)
 
             out = output_path / f"{name}_{band.name}.tif"
             cv.imwrite(str(out) , img)
@@ -118,6 +230,7 @@ class ImageProcessor:
         with rasterio.open(input_path) as src:
             red, green, blue = src.read(1), src.read(2), src.read(3)
         img = np.dstack((red, green, blue))
+        img = self.normalize_tile(img)
 
         # Normalize for display
         if img.dtype != np.uint8:
@@ -151,13 +264,15 @@ class ImageProcessor:
         if img is None:
             raise FileNotFoundError(f"Image not found: {input_path}")
 
+        img = self.normalize_tile(img)
+
         if img.ndim == 3:
             img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 
         img_display = (cv.normalize(img, None, 0, 255, cv.NORM_MINMAX)
                        if img.dtype != np.uint8 else img.copy()).astype(np.uint8)
 
-        _, mask = cv.threshold(img_display, bounds[0], bounds[1], cv.THRESH_BINARY)
+        _, mask = cv.threshold(img_display, bounds[0], bounds[1], cv.THRESH_BINARY + cv.THRESH_OTSU + cv.THRESH_OTSU)
         mask = self._apply_morph_ops(mask, do_erode, do_dilate, kernel_size)
 
         cv.imwrite(str(mask_dir / f"{name}_mask.tif"), mask)
@@ -228,7 +343,7 @@ class ImageProcessor:
         lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
         b = lab[:, :, 1]
 
-        _, mask = cv.threshold(b, 150, 255, cv.THRESH_BINARY)
+        _, mask = cv.threshold(b, 150, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
         mask = self._apply_morph_ops(mask, do_erode, do_dilate, kernel_size)
 
         applied_mask = cv.bitwise_and(img, img, mask=mask)
@@ -246,7 +361,7 @@ class ImageProcessor:
 # ---------------------------------------------------------------------
 def process_images():
     proc = ImageProcessor(
-        input_path=INPUT_DIR / "20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+        input_path=INPUT_DIR / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
         output_path=OUTPUT_DIR / "image_tiles",
         mask_path=MASK_DIR
     )
@@ -258,26 +373,41 @@ def process_images():
     # # Generate indices (optional) #
     # ###############################
 
-    dir: Path = OUTPUT_DIR / "image_tiles"
+    dir: Path = OUTPUT_DIR / "rgb"
     if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
+            proc.recreate_original_rgb_image(proc.output_path / img, OUTPUT_DIR / "rgb")
     else:
-        print("Index calculation skipped; output directory already exists.")
+        print("RGB calculation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "nir"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
-            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR)
+            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR, Alignment.MATCH_TEMPLATE)
     else:
         print("NIR band separation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "extended_red"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
-            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_red", Bands.EXTEND_RED)
+            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_red", Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
     else:
         print("EXTENDED_RED band separation skipped; output directory already exists.")
+
+    dir = OUTPUT_DIR / "extended_green"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
+            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_green", Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
+    else:
+        print("EXTENDED_GREEN band separation skipped; output directory already exists.")
+    
+    dir: Path = OUTPUT_DIR / "image_tiles_indeces"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
+            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
+    else:
+        print("Index calculation skipped; output directory already exists.")
+
 
     # ##############################
     # # Create and apply NIR masks #
@@ -289,7 +419,7 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
-            proc.calculate_mask_from_band(True, True, KERNEL_SIZE, (180,255), proc.input_path / img_name)
+            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
 
         apply_masks(proc, "NIR_MASKS")
     else:
@@ -305,7 +435,7 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "RVI_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
-            proc.calculate_mask_from_band(True, True, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
+            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
 
         apply_masks(proc, "RVI_MASKS")
     else:
@@ -323,7 +453,7 @@ def process_images():
         os.makedirs(proc.mask_path, exist_ok=True)
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
-            proc.calculate_mask_from_band(True, True, KERNEL_SIZE, (100,255), proc.input_path / img_name)
+            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
 
         apply_masks(proc, "NGRDI_MASKS")
     else:
@@ -339,7 +469,7 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "RGB_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RGB masks"):
-            proc.calculate_mask_from_rgb(True, True, KERNEL_SIZE, proc.input_path / img_name)
+            proc.calculate_mask_from_rgb(False, False, KERNEL_SIZE, proc.input_path / img_name)
 
         apply_masks(proc, "RGB_MASKS")
 
@@ -367,7 +497,7 @@ def process_images():
             )
 
         for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
-            proc.calculate_mask_from_nen((5,5), dir / img_name)
+            proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
 
     else:
         print("NEN image creation skipped; output directory already exists.")
