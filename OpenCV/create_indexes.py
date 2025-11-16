@@ -112,7 +112,7 @@ def compute_index(name, bands):
         "GNDVI": lambda: (NIR - G) / (NIR + G + eps),
         "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
-        "MSRI": lambda: ((NIR - R) - 1) / np.sqrt(NIR / R + 1),
+        "MSRI": lambda: ((NIR - R) - 1) / (np.sqrt(NIR / (R + eps) + 1) + eps),
         "NDRE": lambda: (NIR - RE) / (NIR + RE + eps),
         "NDVI": lambda: (NIR - R) / (NIR + R + eps),
         "NGBDI": lambda: (G - B) / (G + B + eps),
