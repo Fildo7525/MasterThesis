@@ -19,9 +19,14 @@ class Indices(IntEnum):
     NDVI = 1
     SVI = 2
     NGRDI = 3
+    # Used to enhance the detection and analysis of green vegetation
     GNDVI = 4
     RVI = 5
-    TVI = 6
+
+    # Indicate the relationship between the absorbed radiant energy by vegetation and the reflectance in red,
+    # green, and near-infrared bands, useful for monitoring crop biomass
+    TVI = 6 # Triangle Vegetation Index
+
     NDRE = 7
     CVI = 8
     CIG = 9
@@ -36,6 +41,54 @@ class Indices(IntEnum):
     EXG = 18
     EXR = 19
 
+    #Reflects the color characteristics of vegetation, can be used to identify vegetation types and estimate biomass
+    CIVE = 17 # Color Index of Vegetation Extraction (https://doi.org/10.1016/j.rse.2008.06.006)
+
+    # Reduces the influence of atmospheric and soil noise, providing a stable response to the vegetation condition in the measured area
+    EVI = 18  # Enhanced Vegetation Index (https://doi.org/10.1016/S0034-4257(96)00066-3)
+
+    # Used for detecting vegetation
+    EXG = 19  # Excess Green Index
+
+    # Can effectively distinguish green vegetation from non-vegetated areas in complex backgrounds
+    EXGR = 20 # Excess Green-Red Index
+
+    # Used for detecting non-vegetated areas
+    EXR = 21 # Excess Red Index
+
+    # Enhances vegetation signals while reducing atmospheric interference and soil background noise
+    MSRI = 22 # Modified Soil-Adjusted Vegetation Index
+
+    # Identify vegetated areas and reflect their health status
+    NGBDI = 23 # Normalized Green-Blue Difference Index
+
+    # Assess chlorophyll content and photosynthetic capacity of plants
+    NPCI = 24 # Normalized Pigment Chlorophyll Index
+
+    # Evaluate the leaf area index and biomass vegetation index
+    RTVICore = 25 # Red-Edge Triangular Vegetation Index Core
+
+    # Source Address Validation Improvement
+    SAVI2 = 26 # Source Address Validation Improvement
+
+    # Monitor vegetation health, detect plant physiological stress, and analyze crop yield
+    SIPI = 27 # Structure Insensitive Pigment Index
+
+    #Common vegetation index for assessing vegetation quantity
+    SR = 28 # Simple Ratio Index
+
+    # Evaluate chlorophyll content and plant health
+    TCARI = 29 # Transformed Chlorophyll Absorption in Reflectance Index
+
+    # Reduce the impact of atmospheric conditions on vegetation index calculations
+    VARI = 30 # Visible Atmospherically Resistant Index
+
+    # Utilize differences in the visible spectrum to assess vegetation health and coverage
+    VDVI = 31 # Visible Difference Vegetation Index
+
+    # Vegetation index based on RGB channel information, used to estimate grassland vegetation coverage
+    VEG = 32 # Vegetation Index
+
 
 # -------- Index Formulas --------
 def compute_index(name, bands):
@@ -46,28 +99,42 @@ def compute_index(name, bands):
     NIR = bands[Bands.NIR - 1]
 
     eps = 1e-5
+    lmbda = 0.667
     L = 0.5
 
     formulas = {
-        "NDVI": lambda: (NIR - R) / (NIR + R + eps),
-        "SVI": lambda: (NIR - G) / (NIR + G + eps),
-        "NGRDI": lambda: (G - R) / (G + R + eps),
-        "GNDVI": lambda: (NIR - G) / (NIR + G + eps),
-        "RVI": lambda: NIR / (R + eps),
-        "TVI": lambda: np.sqrt(np.abs((NIR - R) / (NIR + R + eps) + 0.5)),
-        "NDRE": lambda: (NIR - RE) / (NIR + RE + eps),
-        "CVI": lambda: (NIR * R) / (G**2 + eps),
         "CIG": lambda: (NIR / (G + eps)) - 1,
         "CIRE": lambda: (NIR / (RE + eps)) - 1,
+        "CIVE": lambda: 0.441*B - 0.881*G + 0.385*R + 18.78745,
+        "CVI": lambda: (NIR * R) / (G**2 + eps),
         "DVI": lambda: NIR - R,
-        "VDVI": lambda: (2*G - R - B) / (2*G + R + B),
-        "SAVI": lambda: (NIR-R)*(1+L)/(NIR+R+L),
-        "OSAVI": lambda: (NIR - R)/(NIR + R + 0.16),
-        "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
+        "EVI": lambda: 2.5 * (NIR - R), # / (NIR + 6 * R - 7.5 * B + 1 + eps),
+        "EXG": lambda: 2 * G - R - B,
+        "EXGR": lambda: 2 * G - 2.4 * R,
+        "EXR": lambda: 1.4 * R - B,
+        "GNDVI": lambda: (NIR - G) / (NIR + G + eps),
         "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
+        "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
+        "MSRI": lambda: ((NIR - R) - 1) / np.sqrt(NIR / R + 1),
+        "NDRE": lambda: (NIR - RE) / (NIR + RE + eps),
+        "NDVI": lambda: (NIR - R) / (NIR + R + eps),
+        "NGBDI": lambda: (G - B) / (G + B + eps),
+        "NGRDI": lambda: (G - R) / (G + R + eps),
         "NGRVI": lambda: (G**2 + R**2) / (G**2 - R**2 + eps),
-        "EXG": lambda: (2*G - R - B),
-        "EXR": lambda: (1.4*R - G),
+        "NPCI": lambda: (R - B) / (R + B + eps),
+        "OSAVI": lambda: (NIR - R)/(NIR + R + 0.16),
+        "RTVICore": lambda: 100 * (NIR - RE) - 10 * (NIR - G),
+        "RVI": lambda: NIR / (R + eps),
+        "SAVI": lambda: (NIR-R)*(1+L)/(NIR+R+L),
+        "SAVI2": lambda: (NIR - R) / (NIR + R + 0.5) * 1.5,
+        "SIPI": lambda: (NIR - B) / (NIR - R + eps),
+        "SR": lambda: NIR / (R + eps),
+        "SVI": lambda: (NIR - G) / (NIR + G + eps),
+        "TCARI": lambda: 3 * ((RE - R) - 0.2 * (RE - G) * (RE / (R + eps))),
+        "TVI": lambda: np.sqrt(np.abs((NIR - R) / (NIR + R + eps) + 0.5)),
+        "VARI": lambda: (G - R) / (G + R - B + eps),
+        "VDVI": lambda: (2*G - (R + B)) / (2*G + (R + B) + eps),
+        "VEG": lambda: G / (R**lmbda * B**(1 - lmbda) + eps),
     }
 
     if name not in formulas:
