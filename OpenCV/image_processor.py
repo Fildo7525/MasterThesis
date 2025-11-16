@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 from pathlib import Path
 import numpy as np
@@ -429,7 +431,7 @@ def process_images():
     dir: Path = OUTPUT_DIR / "image_tiles_indeces"
     if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
+            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces", indices_to_calculate)
     else:
         print("Index calculation skipped; output directory already exists.")
 
