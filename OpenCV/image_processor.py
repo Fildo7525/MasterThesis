@@ -186,6 +186,10 @@ class ImageProcessor:
     def calculate_image_indices(self, input_path: Path | None = None,
                                 output_path: Path | None = None,
                                 indeces: list[Indices] | None = None):
+        # Check if the extension is xml
+        if input_path and input_path.suffix.lower() == ".xml":
+            return
+
         input_path = input_path or self.input_path
         output_path = output_path or self.output_path
         # print(f"Calculating all indices for {input_path}...")
