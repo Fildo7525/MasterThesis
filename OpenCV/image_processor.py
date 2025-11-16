@@ -9,6 +9,7 @@ from create_indexes import calculate_all_indices, calculate_index, Bands, Indice
 from typing import Tuple
 from tqdm import tqdm
 from enum import IntEnum
+import json
 
 # ----------------------------- CONFIG --------------------------------
 
@@ -49,8 +50,8 @@ class ImageProcessor:
     def __helper_combine_bands_to_rgb(self, input_path: Path | None = None):
 
         if input_path == None:
-            return None 
-        
+            return None
+
         with rasterio.open(input_path) as src:
             red, green, blue = src.read(1), src.read(2), src.read(3)
             red = self.normalize_tile(red)
@@ -89,7 +90,7 @@ class ImageProcessor:
         M = np.float32([[1, 0, dx], [0, 1, dy]])
         aligned_other = cv.warpAffine(other_image, M, (cols, rows))
         return aligned_other
-    
+
     def align_to_rgb_ORB(self, rgb, other):
 
         rgb_gray = cv.cvtColor(rgb, cv.COLOR_BGR2GRAY)
@@ -137,7 +138,7 @@ class ImageProcessor:
 
         h, w = rgb_gray.shape
         return cv.warpAffine(other, M, (w, h))
-        
+
     def normalize_tile(self,img):
         img = img.astype(np.float32)
         return cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
@@ -154,7 +155,7 @@ class ImageProcessor:
             img = self.normalize_tile(img)
             if img.dtype != np.uint8:
                 cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-            
+
             if do_alignment == Alignment.MATCH_TEMPLATE:
                 print("Doing match template alignment")
                 rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
@@ -182,11 +183,18 @@ class ImageProcessor:
             print(f"[ERROR] Failed to split image: {e}")
 
     # --- Index Calculation ---
-    def calculate_image_indices(self, input_path: Path | None = None, output_path: Path | None = None):
+    def calculate_image_indices(self, input_path: Path | None = None,
+                                output_path: Path | None = None,
+                                indeces: list[Indices] | None = None):
         input_path = input_path or self.input_path
         output_path = output_path or self.output_path
         # print(f"Calculating all indices for {input_path}...")
-        calculate_all_indices(input_path, output_path)
+
+        if indeces == None:
+            calculate_all_indices(input_path, output_path, Indices)
+
+        else:
+            calculate_all_indices(input_path, output_path, indeces)
 
     # --- Mask Utilities ---
     @staticmethod
@@ -369,16 +377,31 @@ def process_images():
     # Split image into tiles
     proc.split_image(TILE_SIZE)
 
+    ##################################
+    # Load what indices to calculate #
+    ##################################
+    indices_to_calculate: list[Indices] = []
+    recalculate = False
+    cwd: Path = Path.cwd()
+    with open(cwd / "conf.json", 'r') as f:
+        config = json.load(f)
+        recalculate = config.get("recalculate", False)
+        for index_name in Indices.__members__:
+            if config.get(index_name, False):
+                indices_to_calculate.append(Indices[index_name])
+            else:
+                print(f"[WARNING] Index {index_name} not recognized; skipping.")
+
+    print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
+
     # ###############################
     # # Generate indices (optional) #
     # ###############################
 
     dir: Path = OUTPUT_DIR / "rgb"
-    if not dir.exists():
+    if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
             proc.recreate_original_rgb_image(proc.output_path / img, OUTPUT_DIR / "rgb")
-    else:
-        print("RGB calculation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "nir"
     if not dir.exists():
@@ -400,7 +423,7 @@ def process_images():
             proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_green", Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
     else:
         print("EXTENDED_GREEN band separation skipped; output directory already exists.")
-    
+
     dir: Path = OUTPUT_DIR / "image_tiles_indeces"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
@@ -478,7 +501,7 @@ def process_images():
     ############################################################
 
     dir = OUTPUT_DIR / "NEN_images"
-    if not dir.exists() or True:
+    if not dir.exists():
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
         proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
