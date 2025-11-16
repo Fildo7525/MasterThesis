@@ -141,7 +141,7 @@ def compute_index(name, bands):
 
 
 # -------- Processing --------
-def calculate_all_indices(input_path, output_path):
+def calculate_all_indices(input_path, output_path, indices):
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -152,8 +152,7 @@ def calculate_all_indices(input_path, output_path):
         meta = src.profile
         meta.update(dtype=rasterio.float32, count=1)
 
-        for index in Indices:
-
+        for index in indices:
             output_path_copy = output_path / str(index.name)
             os.makedirs(output_path_copy, exist_ok=True)
 
@@ -180,8 +179,6 @@ def calculate_index(input_path, output_path, index: Indices):
         meta = src.profile
         meta.update(dtype=rasterio.float32, count=1)
 
-        print(f"Calculating {index.name}...")
-
         output_path_copy = output_path / str(index)
         os.makedirs(output_path_copy, exist_ok=True)
 
@@ -199,4 +196,4 @@ if __name__ == "__main__":
     input_tif = DIR_PATH / "tile_1_1.tif"
     output_dir = DIR_PATH / "indices_output"
 
-    calculate_all_indices(input_tif, output_dir)
+    calculate_all_indices(input_tif, output_dir, Indices)

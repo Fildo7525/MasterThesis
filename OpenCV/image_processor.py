@@ -10,6 +10,7 @@ from image_splitter import split_geotiff
 from create_indexes import calculate_all_indices, calculate_index, Bands, Indices
 from typing import Tuple
 from tqdm import tqdm
+import json
 
 
 # ----------------------------- CONFIG --------------------------------
@@ -70,11 +71,18 @@ class ImageProcessor:
             print(f"[ERROR] Failed to split image: {e}")
 
     # --- Index Calculation ---
-    def calculate_image_indices(self, input_path: Path | None = None, output_path: Path | None = None):
+    def calculate_image_indices(self, input_path: Path | None = None,
+                                output_path: Path | None = None,
+                                indeces: list[Indices] | None = None):
         input_path = input_path or self.input_path
         output_path = output_path or self.output_path
         # print(f"Calculating all indices for {input_path}...")
-        calculate_all_indices(input_path, output_path)
+
+        if indeces == None:
+            calculate_all_indices(input_path, output_path, Indices)
+
+        else:
+            calculate_all_indices(input_path, output_path, indeces)
 
     # --- Mask Utilities ---
     @staticmethod
@@ -254,14 +262,31 @@ def process_images():
     # Split image into tiles
     proc.split_image(TILE_SIZE)
 
+    ##################################
+    # Load what indices to calculate #
+    ##################################
+    indices_to_calculate: list[Indices] = []
+    recalculate = False
+    cwd: Path = Path.cwd()
+    with open(cwd / "conf.json", 'r') as f:
+        config = json.load(f)
+        recalculate = config.get("recalculate", False)
+        for index_name in Indices.__members__:
+            if config.get(index_name, False):
+                indices_to_calculate.append(Indices[index_name])
+            else:
+                print(f"[WARNING] Index {index_name} not recognized; skipping.")
+
+    print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
+
     # ###############################
     # # Generate indices (optional) #
     # ###############################
 
     dir: Path = OUTPUT_DIR / "image_tiles"
-    if not dir.exists():
+    if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces")
+            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces", indices_to_calculate)
     else:
         print("Index calculation skipped; output directory already exists.")
 
@@ -348,7 +373,7 @@ def process_images():
     ############################################################
 
     dir = OUTPUT_DIR / "NEN_images"
-    if not dir.exists() or True:
+    if not dir.exists():
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
         proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
