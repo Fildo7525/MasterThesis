@@ -3,17 +3,17 @@
 from ultralytics import YOLO
 
 # Create a new YOLO11n-OBB model from scratch
-model = YOLO("yolo11n-obb.yaml")
+model = YOLO("yolo11n-obb.yaml", task="obb", verbose=True)
 
 # Train the model on the DOTAv1 dataset
 # https://docs.ultralytics.com/modes/train/#train-settings
 results = model.train(
-    data="./YOLO/dataset.yaml",
-    epochs=1000,
+    data="./NEN_sorted/dataset.yaml",
+    epochs=100,
     imgsz=1024,
     batch=8,
     # single_cls = True,
     # classes = [ "potato" ],
     # plots = True,
-    # close_mosaic = 0, # Disable mosaic augmentation in the last N epochs. 0 means disabled
+    close_mosaic = 0, # Disable mosaic augmentation in the last N epochs. 0 means disabled
 )

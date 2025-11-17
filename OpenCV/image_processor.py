@@ -16,9 +16,7 @@ import json
 # ----------------------------- CONFIG --------------------------------
 
 HOME_DIR = Path.home()
-INPUT_DIR = HOME_DIR / Path("SDU/MasterThesis/Orthomosaics")
-OUTPUT_DIR = INPUT_DIR / Path("processed_output")
-MASK_DIR = INPUT_DIR / Path("masks")
+MASK_DIR = Path()
 
 KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
@@ -374,6 +372,7 @@ class ImageProcessor:
 #                            MAIN WORKFLOW
 # ---------------------------------------------------------------------
 def process_images():
+    global MASK_DIR
     ##################################
     # Load what indices to calculate #
     ##################################
@@ -383,16 +382,19 @@ def process_images():
     with open(cwd / "conf.json", 'r') as f:
         config = json.load(f)
         recalculate = config.get("recalculate", False)
-        for index_name in Indices.__members__:
-            if config.get(index_name, False):
-                indices_to_calculate.append(Indices[index_name])
+        if recalculate:
+            for index_name in Indices.__members__:
+                if config.get(index_name, False):
+                    indices_to_calculate.append(Indices[index_name])
 
     print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
 
+    OUTPUT_DIR = HOME_DIR / config.get("output_path", "")
+    MASK_DIR = HOME_DIR / config.get("mask_path", "")
     proc = ImageProcessor(
-        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        output_path=HOME_DIR / config.get("output_path", "") /  "image_tiles",
-        mask_path=HOME_DIR / config.get("mask_path", "")
+        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+        output_path=OUTPUT_DIR /  "image_tiles",
+        mask_path=MASK_DIR
     )
 
     # Split image into tiles
@@ -405,33 +407,33 @@ def process_images():
     dir: Path = OUTPUT_DIR / "rgb"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
-            proc.recreate_original_rgb_image(proc.output_path / img, OUTPUT_DIR / "rgb")
+            proc.recreate_original_rgb_image(proc.output_path / img, dir)
 
     dir = OUTPUT_DIR / "nir"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
-            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "nir", Bands.NIR, Alignment.MATCH_TEMPLATE)
+            proc.separate_band(proc.output_path / img, dir, Bands.NIR, Alignment.MATCH_TEMPLATE)
     else:
         print("NIR band separation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "extended_red"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
-            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_red", Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
+            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
     else:
         print("EXTENDED_RED band separation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "extended_green"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
-            proc.separate_band(proc.output_path / img, OUTPUT_DIR / "extended_green", Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
+            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
     else:
         print("EXTENDED_GREEN band separation skipped; output directory already exists.")
 
     dir: Path = OUTPUT_DIR / "image_tiles_indeces"
     if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-            proc.calculate_image_indices(proc.output_path / img, OUTPUT_DIR / "image_tiles_indeces", indices_to_calculate)
+            proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
     else:
         print("Index calculation skipped; output directory already exists.")
 
@@ -492,6 +494,7 @@ def process_images():
 
     dir = MASK_DIR / "RGB_MASKS"
     if not dir.exists():
+        Path.mkdir(dir, exist_ok=True)
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
         proc.set_mask_path(MASK_DIR / "RGB_MASKS")
 
@@ -536,6 +539,7 @@ def process_images():
 
 def apply_masks(proc: ImageProcessor, mask_folder_name: str):
     """Helper to apply all masks within a mask folder."""
+    global MASK_DIR
     base_dir = MASK_DIR / mask_folder_name
     mask_dir = base_dir / "masks"
     orig_dir = base_dir / "originals"
