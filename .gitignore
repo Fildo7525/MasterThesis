@@ -15,3 +15,8 @@ AI/YOLO/labels
 AI/YOLO/dataset.yaml
 runs/obb
 AI/yolo11n.pt
+AI/cvat
+AI/YOLO/obb.zip
+Data/indices.qgz
+AI/NEN
+AI/NEN_sorted
