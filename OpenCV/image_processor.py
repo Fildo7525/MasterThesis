@@ -18,7 +18,7 @@ import json
 HOME_DIR = Path.home()
 MASK_DIR = Path()
 
-KERNEL_SIZE: Tuple[int, int] = (3, 2)   # [erode, dilate]
+KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024
 # ---------------------------------------------------------------------
@@ -72,7 +72,7 @@ class ImageProcessor:
 
         name = Path(input_path).stem
         img = self.__helper_combine_bands_to_rgb(input_path)
-        cv.imwrite(str(out_put_path / f"{name}_rgb.tif"), img)
+        cv.imwrite(str(out_put_path / f"{name}_rgb.png"), img)
 
     def align_to_rgb_match_template(self,rgb_image, other_image):
         rgb_gray = cv.cvtColor(rgb_image, cv.COLOR_BGR2GRAY)
@@ -84,7 +84,7 @@ class ImageProcessor:
         _, _, _, max_loc = cv.minMaxLoc(result)
 
         dx, dy = max_loc
-        #print(f"Shift: dx={dx}, dy={dy}")
+        print(f"Shift: dx={dx}, dy={dy}")
 
         rows, cols = other_image.shape
         M = np.float32([[1, 0, dx], [0, 1, dy]])
@@ -117,7 +117,7 @@ class ImageProcessor:
 
         # --- Safety: need at least 3 point pairs for affine ---
         if len(good) < 3:
-            #print(f"[WARN] Only {len(good)} good matches. Skipping alignment.")
+            print(f"[WARN] Only {len(good)} good matches. Skipping alignment.")
             return other
 
         src_pts = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
@@ -125,7 +125,7 @@ class ImageProcessor:
 
         # Safety: same lengths?
         if len(src_pts) != len(dst_pts):
-            #print("[WARN] Mismatch in point counts, skipping alignment.")
+            print("[WARN] Mismatch in point counts, skipping alignment.")
             return other
 
         # --- Estimate transform ---
@@ -133,7 +133,7 @@ class ImageProcessor:
 
         # If transform failed
         if M is None:
-            #print("[WARN] estimateAffinePartial2D failed. Skipping alignment.")
+            print("[WARN] estimateAffinePartial2D failed. Skipping alignment.")
             return other
 
         h, w = rgb_gray.shape
@@ -157,18 +157,18 @@ class ImageProcessor:
                 cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
 
             if do_alignment == Alignment.MATCH_TEMPLATE:
-                #print("Doing match template alignment")
+                print("Doing match template alignment")
                 rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
                 rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
                 img = self.align_to_rgb_match_template(rgb_img, img)
 
             elif do_alignment == Alignment.MATCH_ORB:
-                #print("Doing ORB alignment")
+                print("Doing ORB alignment")
                 rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
                 rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
                 img = self.align_to_rgb_ORB(rgb_img, img)
 
-            out = output_path / f"{name}_{band.name}.tif"
+            out = output_path / f"{name}_{band.name}.png"
             cv.imwrite(str(out) , img)
 
     # --- Image Splitting ---
@@ -223,7 +223,7 @@ class ImageProcessor:
 
             result = cv.bitwise_and(original, original, mask=mask)
 
-            name = Path(original_img_path).stem + ".tif"
+            name = Path(original_img_path).stem + ".png"
             cv.imwrite(str(output_path / name), result)
             # print(f"Mask applied: {name}")
 
@@ -257,8 +257,8 @@ class ImageProcessor:
 
         img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
 
-        cv.imwrite(str(mask_dir / f"{name}_rgb_mask.tif"), mask)
-        cv.imwrite(str(orig_dir / f"{name}_rgb_original.tif"), img)
+        cv.imwrite(str(mask_dir / f"{name}_rgb_mask.png"), mask)
+        cv.imwrite(str(orig_dir / f"{name}_rgb_original.png"), img)
         # print(f"RGB mask saved for {name}")
         return mask
 
@@ -284,11 +284,11 @@ class ImageProcessor:
         img_display = (cv.normalize(img, None, 0, 255, cv.NORM_MINMAX)
                        if img.dtype != np.uint8 else img.copy()).astype(np.uint8)
 
-        _, mask = cv.threshold(img_display, bounds[0], bounds[1], cv.THRESH_BINARY + cv.THRESH_OTSU)
+        _, mask = cv.threshold(img_display, bounds[0], bounds[1], cv.THRESH_BINARY + cv.THRESH_OTSU + cv.THRESH_OTSU)
         mask = self._apply_morph_ops(mask, do_erode, do_dilate, kernel_size)
 
-        cv.imwrite(str(mask_dir / f"{name}_mask.tif"), mask)
-        cv.imwrite(str(orig_dir / f"{name}_original.tif"), img_display)
+        cv.imwrite(str(mask_dir / f"{name}_mask.png"), mask)
+        cv.imwrite(str(orig_dir / f"{name}_original.png"), img_display)
         # print(f"1-band mask saved for {name}")
         return mask
 
@@ -332,7 +332,7 @@ class ImageProcessor:
             img = cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
 
         output_name = str(Path(input_paths.ngrdi_path).stem).replace("_ngrdi", "")
-        path = str(output_path / f"{output_name}_NEN.tif")
+        path = str(output_path / f"{output_name}_NEN.png")
         cv.imwrite(path, img)
         # print(f"Saving NEN image to {path}")
 
@@ -361,9 +361,9 @@ class ImageProcessor:
         applied_mask = cv.bitwise_and(img, img, mask=mask)
 
         name = Path(input_path).stem
-        cv.imwrite(str(mask_dir / f"{name}_nen_mask.tif"), mask)
-        cv.imwrite(str(orig_dir / f"{name}_nen_original.tif"), lab)
-        cv.imwrite(str(applied_dir / f"{name}_nen.tif"), applied_mask)
+        cv.imwrite(str(mask_dir / f"{name}_nen_mask.png"), mask)
+        cv.imwrite(str(orig_dir / f"{name}_nen_original.png"), lab)
+        cv.imwrite(str(applied_dir / f"{name}_nen.png"), applied_mask)
         return mask
 
 
@@ -373,6 +373,33 @@ class ImageProcessor:
 # ---------------------------------------------------------------------
 def process_images():
     global MASK_DIR
+    ##################################
+    # Load what indices to calculate #
+    ##################################
+    indices_to_calculate: list[Indices] = []
+    recalculate = False
+    cwd: Path = Path.cwd()
+    with open(cwd / "conf.json", 'r') as f:
+        config = json.load(f)
+        recalculate = config.get("recalculate", False)
+        if recalculate:
+            for index_name in Indices.__members__:
+                if config.get(index_name, False):
+                    indices_to_calculate.append(Indices[index_name])
+
+    print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
+
+    OUTPUT_DIR = HOME_DIR / config.get("output_path", "")
+    MASK_DIR = HOME_DIR / config.get("mask_path", "")
+    proc = ImageProcessor(
+        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
+        output_path=OUTPUT_DIR /  "image_tiles",
+        mask_path=MASK_DIR
+    )
+
+    # Split image into tiles
+    proc.split_image(TILE_SIZE)
+
     ##################################
     # Load what indices to calculate #
     ##################################
@@ -448,7 +475,7 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
-            proc.calculate_mask_from_band(True, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
+            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
 
         apply_masks(proc, "NIR_MASKS")
     else:
@@ -482,7 +509,7 @@ def process_images():
         os.makedirs(proc.mask_path, exist_ok=True)
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
-            proc.calculate_mask_from_band(True, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
+            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
 
         apply_masks(proc, "NGRDI_MASKS")
     else:
@@ -507,19 +534,19 @@ def process_images():
     # Create 3-band image NEN from NGRDI, Extended Red and NIR #
     ############################################################
 
-    dir = OUTPUT_DIR / "NEN_images"
+    dir = OUTPUT_DIR / "NVDI_images"
     if not dir.exists():
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
         proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
-            img_name_ngrdi = img_name.replace(".tif", "_ngrdi.tif")
-            img_name_nir = img_name.replace(".tif", "_NIR.tif")
-            img_name_er = img_name.replace(".tif", "_EXTEND_RED.tif")
+            img_name_ngrdi = img_name.replace(".png", "_rvi.png")
+            img_name_nir = img_name.replace(".png", "_NIR.png")
+            img_name_er = img_name.replace(".png", "_EXTEND_RED.png")
 
             proc.calculate_nen_image(
                 input_paths = NENInputBands(
-                    ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "NGRDI" / img_name_ngrdi,
+                    ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "RVI" / img_name_ngrdi,
                     extended_red_path=OUTPUT_DIR / "extended_red" / img_name_er,
                     nir_path=OUTPUT_DIR / "nir" / img_name_nir,
                 ),

@@ -29,10 +29,10 @@
 	"SAVI2": false,
 	"SIPI": false,
 	"SR": false,
-	"SVI": true,
+	"SVI": false,
 	"TCARI": false,
 	"TVI": false,
-	"VARI": true,
-	"VDVI": true,
-	"VEG": true
+	"VARI": false,
+	"VDVI": false,
+	"VEG": false
 }
