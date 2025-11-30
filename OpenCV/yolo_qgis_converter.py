@@ -13,18 +13,18 @@ import geopandas as gpd
 import os
 import pandas as pd
 import rasterio
+import numpy as np
 
 
 class YOLOShapefileConverter:
     """Convert between YOLOv5 annotations and georeferenced shapefiles"""
 
     def label_to_shapefile(self,
-                          yolo_label_path: str,
-                          reference_tif_file: str,
-                          output_shapefile: str,
+                          yolo_label_path: str | Path,
+                          reference_tif_file: str | Path,
+                          output_shapefile: str | Path,
                           *,
                           save: bool = True,
-                          gdf: Optional[gpd.GeoDataFrame] = None,
                           class_names: Optional[List[str]] = None):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
@@ -55,6 +55,11 @@ class YOLOShapefileConverter:
             width = src.width
             height = src.height
 
+        # Ensure output directory exists
+        output_path = Path(output_shapefile)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        existing_gdf = gpd.read_file(output_shapefile) if output_path.exists() else None
+        shps = existing_gdf.geometry if existing_gdf is not None else None
         # Read YOLO annotations
         with open(yolo_label_path, 'r') as f:
             for line in f:
@@ -90,6 +95,27 @@ class YOLOShapefileConverter:
                     (x3_geo, y3_geo),  # bottom-right
                 ])
 
+                # Check for intersection with existing shapefile geometries
+                if shps is not None:
+                    intersects_old = shps.intersects(poly)
+                    # print(f"intersects_old: {intersects_old}")
+
+                    intersecting = shps[intersects_old]
+                    np.delete(shps, np.where(intersects_old))
+
+                    if np.any(intersecting):
+                        print(intersecting)
+                        continue
+
+                    # Combine the intersecting results into a big box
+
+
+                intersects_new = poly.intersects(polygons)
+                if np.any(intersects_new):
+                    # print(f"Skipping annotation in {yolo_label_path} due to intersection with new shapes")
+                    continue
+
+                # print(intersects)
                 polygons.append(poly)
                 class_ids.append(class_id)
 
@@ -99,28 +125,16 @@ class YOLOShapefileConverter:
                     class_labels.append(f"class_{class_id}")
 
         if len(polygons) == 0:
-            print(f"Warning: No annotations found in {yolo_label_path}")
+            # print(f"Warning: No annotations found in {yolo_label_path}")
             return None
 
         # Create GeoDataFrame
-        if gdf is None:
-            gdf = gpd.GeoDataFrame({
-                'class_id': class_ids,
-                'class_name': class_labels,
-                'geometry': polygons
-            }, crs=crs)
-
-        else:
-            new_gdf = gpd.GeoDataFrame({
-                'class_id': class_ids,
-                'class_name': class_labels,
-                'geometry': polygons
-            }, crs=crs)
-            gdf = pd.concat([gdf, new_gdf], ignore_index=True)
-
-        # Ensure output directory exists
-        output_path = Path(output_shapefile)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # print(f"Creating new GeoDataFrame with {len(polygons)} records")
+        gdf = gpd.GeoDataFrame({
+            'class_id': class_ids,
+            'class_name': class_labels,
+            'geometry': polygons
+        }, crs=crs)
 
         # Save shapefile
         if save:
@@ -253,7 +267,7 @@ class YOLOShapefileConverter:
                             labels_dir: str | Path,
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
-                            ) -> gpd.GeoDataFrame:
+                            ) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
         Args:
@@ -276,7 +290,7 @@ class YOLOShapefileConverter:
         label_files = list(labels_dir.glob("*.txt"))
         if len(label_files) == 0:
             print(f"Warning: No YOLO label files found in {labels_dir}")
-            return []
+            return None
 
         for label_file in label_files:
             # Corresponding TIF file
@@ -301,6 +315,7 @@ class YOLOShapefileConverter:
         output_shapefile.parent.mkdir(parents=True, exist_ok=True)
 
         print(f"Saving combined shapefile to {output_shapefile}")
+        return None
 
 
 
