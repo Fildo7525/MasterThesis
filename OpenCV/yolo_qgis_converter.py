@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 YOLOv5 <-> Shapefile Converter for Georeferenced Orthomosaics
+With support for merging intersecting boxes
 
 Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
@@ -8,6 +9,7 @@ pip install rasterio geopandas shapely fiona pyproj
 
 from pathlib import Path
 from shapely.geometry import Polygon, box
+from shapely.ops import unary_union
 from typing import List, Optional
 import geopandas as gpd
 import os
@@ -19,13 +21,69 @@ import numpy as np
 class YOLOShapefileConverter:
     """Convert between YOLOv5 annotations and georeferenced shapefiles"""
 
+    def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int], class_labels: List[str]):
+        """
+        Merge intersecting polygons into larger bounding boxes.
+
+        Args:
+            polygons: List of Polygon objects
+            class_ids: List of class IDs corresponding to polygons
+            class_labels: List of class labels corresponding to polygons
+
+        Returns:
+            Tuple of (merged_polygons, merged_class_ids, merged_class_labels)
+        """
+        if len(polygons) == 0:
+            return [], [], []
+
+        # Create a list of indices that haven't been merged yet
+        unmerged_indices = set(range(len(polygons)))
+        merged_polygons = []
+        merged_class_ids = []
+        merged_class_labels = []
+
+        while unmerged_indices:
+            # Start with the first unmerged polygon
+            current_idx = unmerged_indices.pop()
+            current_group = [current_idx]
+            current_poly = polygons[current_idx]
+
+            # Keep looking for intersections until no more are found
+            changed = True
+            while changed:
+                changed = False
+                indices_to_remove = []
+
+                for idx in unmerged_indices:
+                    if current_poly.intersects(polygons[idx]):
+                        current_group.append(idx)
+                        # Union the polygons
+                        current_poly = unary_union([current_poly, polygons[idx]])
+                        indices_to_remove.append(idx)
+                        changed = True
+
+                # Remove merged indices
+                for idx in indices_to_remove:
+                    unmerged_indices.remove(idx)
+
+            # Get the bounding box of the merged polygon
+            merged_bbox = box(*current_poly.bounds)
+            merged_polygons.append(merged_bbox)
+
+            # Use the class of the first polygon in the group
+            merged_class_ids.append(class_ids[current_group[0]])
+            merged_class_labels.append(class_labels[current_group[0]])
+
+        return merged_polygons, merged_class_ids, merged_class_labels
+
     def label_to_shapefile(self,
                           yolo_label_path: str | Path,
                           reference_tif_file: str | Path,
                           output_shapefile: str | Path,
                           *,
                           save: bool = True,
-                          class_names: Optional[List[str]] = None):
+                          class_names: Optional[List[str]] = None,
+                          merge_intersecting: bool = True):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -34,6 +92,7 @@ class YOLOShapefileConverter:
             reference_tif_file: Path to reference TIF that corresponds to the cutout
             output_shapefile: Output shapefile path (.shp)
             class_names: Optional list of class names (e.g., ['tree', 'building'])
+            merge_intersecting: Whether to merge intersecting boxes (default: True)
         """
         polygons = []
         class_ids = []
@@ -58,13 +117,20 @@ class YOLOShapefileConverter:
         # Ensure output directory exists
         output_path = Path(output_shapefile)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        existing_gdf = gpd.read_file(output_shapefile) if output_path.exists() else None
-        shps = existing_gdf.geometry if existing_gdf is not None else None
+
+        # Load existing shapefile if it exists
+        existing_gdf = None
+        if output_path.exists():
+            try:
+                existing_gdf = gpd.read_file(output_shapefile)
+            except Exception as e:
+                print(f"Warning: Could not read existing shapefile: {e}")
+
         # Read YOLO annotations
         with open(yolo_label_path, 'r') as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) < 5:
+                if len(parts) < 9:
                     continue
 
                 class_id = int(parts[0])
@@ -95,27 +161,6 @@ class YOLOShapefileConverter:
                     (x3_geo, y3_geo),  # bottom-right
                 ])
 
-                # Check for intersection with existing shapefile geometries
-                if shps is not None:
-                    intersects_old = shps.intersects(poly)
-                    # print(f"intersects_old: {intersects_old}")
-
-                    intersecting = shps[intersects_old]
-                    np.delete(shps, np.where(intersects_old))
-
-                    if np.any(intersecting):
-                        print(intersecting)
-                        continue
-
-                    # Combine the intersecting results into a big box
-
-
-                intersects_new = poly.intersects(polygons)
-                if np.any(intersects_new):
-                    # print(f"Skipping annotation in {yolo_label_path} due to intersection with new shapes")
-                    continue
-
-                # print(intersects)
                 polygons.append(poly)
                 class_ids.append(class_id)
 
@@ -125,11 +170,35 @@ class YOLOShapefileConverter:
                     class_labels.append(f"class_{class_id}")
 
         if len(polygons) == 0:
-            # print(f"Warning: No annotations found in {yolo_label_path}")
+            return None
+
+        # Merge intersecting polygons if requested
+        if merge_intersecting:
+            polygons, class_ids, class_labels = self._merge_intersecting_polygons(
+                polygons, class_ids, class_labels
+            )
+
+        # Merge with existing shapefile if it exists
+        if existing_gdf is not None and len(existing_gdf) > 0:
+            # Combine new polygons with existing ones
+            all_polygons = list(existing_gdf.geometry) + polygons
+            all_class_ids = list(existing_gdf['class_id']) + class_ids
+            all_class_labels = list(existing_gdf['class_name']) + class_labels
+
+            # Merge all intersecting polygons
+            if merge_intersecting:
+                polygons, class_ids, class_labels = self._merge_intersecting_polygons(
+                    all_polygons, all_class_ids, all_class_labels
+                )
+            else:
+                polygons = all_polygons
+                class_ids = all_class_ids
+                class_labels = all_class_labels
+
+        if len(polygons) == 0:
             return None
 
         # Create GeoDataFrame
-        # print(f"Creating new GeoDataFrame with {len(polygons)} records")
         gdf = gpd.GeoDataFrame({
             'class_id': class_ids,
             'class_name': class_labels,
@@ -138,12 +207,7 @@ class YOLOShapefileConverter:
 
         # Save shapefile
         if save:
-            if output_path.exists():
-                gdf.to_file(output_shapefile, mode='a')
-            else:
-                gdf.to_file(output_shapefile)
-
-            # print(f"Saved shapefile with {len(polygons)} annotations to {output_shapefile}")
+            gdf.to_file(output_shapefile)
 
         return gdf
 
@@ -213,17 +277,12 @@ class YOLOShapefileConverter:
                 clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
 
                 # Transform inverse: geo coords to pixel coords
-                # Using affine transform inverse
                 inv_transform = ~transform
 
                 # Get corners in pixel space
-                # Top-left
                 x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
-                # Top-right
                 x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
-                # Bottom-right
                 x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
-                # Bottom-left
                 x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
                 # Normalize to YOLO format [0, 1]
@@ -248,7 +307,7 @@ class YOLOShapefileConverter:
                     continue
 
                 # Get class ID
-                class_id:int = int(row.get('class_id', 0))
+                class_id = int(row.get('class_id', 0))
 
                 coords = ' '.join([f"{v:.6f}" for v in arr])
                 f.write(f"{class_id} {coords}\n")
@@ -267,13 +326,15 @@ class YOLOShapefileConverter:
                             labels_dir: str | Path,
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
-                            ) -> None:
+                            merge_intersecting: bool = True) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
+
         Args:
-            shapefile_dir: Directory containing YOLO label files
+            labels_dir: Directory containing YOLO label files
             reference_tif_dir: Directory containing reference TIF files
-            output_shapefile_dir: Directory to save output shapefiles
+            output_shapefile: Path to save output shapefile
+            merge_intersecting: Whether to merge intersecting boxes (default: True)
         """
         labels_dir = Path(labels_dir)
         if not labels_dir.exists():
@@ -283,8 +344,15 @@ class YOLOShapefileConverter:
         if not reference_tif_dir.exists():
             raise FileNotFoundError(f"Reference TIF directory not found: {reference_tif_dir}")
 
-        if not Path(output_shapefile).parent.exists():
-            os.makedirs(output_shapefile, exist_ok=True)
+        output_path = Path(output_shapefile)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Delete existing shapefile if it exists
+        if output_path.exists():
+            for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
+                file_to_delete = output_path.with_suffix(ext)
+                if file_to_delete.exists():
+                    file_to_delete.unlink()
 
         # Find all YOLO label files
         label_files = list(labels_dir.glob("*.txt"))
@@ -292,6 +360,7 @@ class YOLOShapefileConverter:
             print(f"Warning: No YOLO label files found in {labels_dir}")
             return None
 
+        processed_count = 0
         for label_file in label_files:
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
@@ -304,19 +373,17 @@ class YOLOShapefileConverter:
                     reference_tif_file=tif_file,
                     output_shapefile=output_shapefile,
                     save=True,
+                    merge_intersecting=merge_intersecting,
                 )
+                processed_count += 1
 
             except Exception as e:
-                print(f"ALL: Error processing {label_file}: {e}")
+                print(f"Error processing {label_file}: {e}")
                 continue
 
-        # Save combined shapefile
-        output_shapefile = Path(output_shapefile)
-        output_shapefile.parent.mkdir(parents=True, exist_ok=True)
-
-        print(f"Saving combined shapefile to {output_shapefile}")
+        print(f"Processed {processed_count} label files")
+        print(f"Saved combined shapefile to {output_shapefile}")
         return None
-
 
 
     def shapefile_to_yolo_cutouts(self,
@@ -371,41 +438,12 @@ class YOLOShapefileConverter:
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize converter with main orthomosaic
     converter = YOLOShapefileConverter()
 
-    # # Example 1: Convert YOLOv5 labels to shapefile
-    # # Use the reference TIF that corresponds to your cutout/image
-    # class_names = ["potato"]
-    # gdf = converter.label_to_shapefile(
-    #     yolo_label_path="../Orthomosaics/train/Small_tile_11_10_NEN.txt",
-    #     reference_tif_file="../Orthomosaics/image_tiles/tile_11_10.tif",
-    #     output_shapefile="./annotations.shp",
-    #     class_names=class_names,
-    # )
-
-    # # Example 2: Convert shapefile to YOLO for a single cutout
-    # converter.shapefile_to_yolo(
-    #     shapefile_path="./annotations.shp",
-    #     reference_tif_file="../Orthomosaics/image_tiles/tile_11_10.tif",
-    #     output_yolo_label="./cutout_001.txt"
-    # )
-
-
-    # Example 3: Convert cutout YOLO labels to shapefile
+    # Example: Convert cutout YOLO labels to shapefile with merging
     converter.labels_to_shapefile(
         labels_dir="../Orthomosaics/train/",
         reference_tif_dir="../Orthomosaics/image_tiles/",
         output_shapefile="./BV_F2_small.shp",
+        merge_intersecting=True  # Enable merging of intersecting boxes
     )
-
-
-    # # Example 3: Convert shapefile to YOLO for all cutouts in a directory
-    # results = converter.shapefile_to_yolo_cutouts(
-    #     shapefile_path="annotations.shp",
-    #     cutouts_dir="cutouts/",
-    #     output_labels_dir="yolo_labels/",
-    #     tif_extension=".tif"
-    # )
-
-    # print(f"Generated labels for {len(results)} cutouts")
