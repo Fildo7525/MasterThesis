@@ -21,7 +21,32 @@ import numpy as np
 class YOLOShapefileConverter:
     """Convert between YOLOv5 annotations and georeferenced shapefiles"""
 
-    def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int], class_labels: List[str]):
+    def _calculate_overlap_ratio(self, poly1: Polygon, poly2: Polygon) -> float:
+        """
+        Calculate the overlap ratio between two polygons.
+        The ratio is the intersection area divided by the area of the smaller polygon.
+
+        Args:
+            poly1: First polygon
+            poly2: Second polygon
+
+        Returns:
+            Float between 0 and 1 representing the overlap ratio
+        """
+        if not poly1.intersects(poly2):
+            return 0.0
+
+        intersection_area = poly1.intersection(poly2).area
+        smaller_area = min(poly1.area, poly2.area)
+
+        if smaller_area == 0:
+            return 0.0
+
+        return intersection_area / smaller_area
+
+
+    def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int],
+                                    class_labels: List[str], overlap_threshold: float = 0.0):
         """
         Merge intersecting polygons into larger bounding boxes.
 
@@ -29,12 +54,18 @@ class YOLOShapefileConverter:
             polygons: List of Polygon objects
             class_ids: List of class IDs corresponding to polygons
             class_labels: List of class labels corresponding to polygons
+            overlap_threshold: Minimum overlap ratio (0-1) required to merge boxes.
+                             0.0 = any intersection merges
+                             1.0 = boxes must completely overlap
 
         Returns:
             Tuple of (merged_polygons, merged_class_ids, merged_class_labels)
         """
         if len(polygons) == 0:
             return [], [], []
+
+        # Clamp overlap threshold to valid range
+        overlap_threshold = max(0.0, min(1.0, overlap_threshold))
 
         # Create a list of indices that haven't been merged yet
         unmerged_indices = set(range(len(polygons)))
@@ -55,7 +86,10 @@ class YOLOShapefileConverter:
                 indices_to_remove = []
 
                 for idx in unmerged_indices:
-                    if current_poly.intersects(polygons[idx]):
+                    # Check if overlap ratio meets threshold
+                    overlap_ratio = self._calculate_overlap_ratio(current_poly, polygons[idx])
+
+                    if overlap_ratio >= overlap_threshold:
                         current_group.append(idx)
                         # Union the polygons
                         current_poly = unary_union([current_poly, polygons[idx]])
@@ -76,6 +110,7 @@ class YOLOShapefileConverter:
 
         return merged_polygons, merged_class_ids, merged_class_labels
 
+
     def label_to_shapefile(self,
                           yolo_label_path: str | Path,
                           reference_tif_file: str | Path,
@@ -83,7 +118,8 @@ class YOLOShapefileConverter:
                           *,
                           save: bool = True,
                           class_names: Optional[List[str]] = None,
-                          merge_intersecting: bool = True):
+                          merge_intersecting: bool = True,
+                          overlap_threshold: float = 0.0):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -93,6 +129,10 @@ class YOLOShapefileConverter:
             output_shapefile: Output shapefile path (.shp)
             class_names: Optional list of class names (e.g., ['tree', 'building'])
             merge_intersecting: Whether to merge intersecting boxes (default: True)
+            overlap_threshold: Minimum overlap ratio (0-1) to merge boxes.
+                             0.0 = any intersection merges (default)
+                             0.5 = boxes must overlap by 50% of smaller box
+                             1.0 = boxes must completely overlap
         """
         polygons = []
         class_ids = []
@@ -138,27 +178,23 @@ class YOLOShapefileConverter:
                 y_top_left = float(parts[2]) * height
                 x_top_right = float(parts[3]) * width
                 y_top_right = float(parts[4]) * height
-                x_bottom_left = float(parts[5]) * width
-                y_bottom_left = float(parts[6]) * height
-                x_bottom_right = float(parts[7]) * width
-                y_bottom_right = float(parts[8]) * height
+                x_bottom_right = float(parts[5]) * width
+                y_bottom_right = float(parts[6]) * height
+                x_bottom_left = float(parts[7]) * width
+                y_bottom_left = float(parts[8]) * height
 
                 # Transform 4 corners to georeferenced coordinates
-                # Top-left
                 x1_geo, y1_geo = transform * (x_top_left, y_top_left)
-                # Top-right
                 x2_geo, y2_geo = transform * (x_top_right, y_top_right)
-                # Bottom-right
                 x3_geo, y3_geo = transform * (x_bottom_right, y_bottom_right)
-                # Bottom-left
                 x4_geo, y4_geo = transform * (x_bottom_left, y_bottom_left)
 
-                # Create polygon with 4 corners (top-left, top-right, bottom-right, bottom-left)
+                # Create polygon with 4 corners
                 poly = Polygon([
-                    (x1_geo, y1_geo),  # top-left
-                    (x2_geo, y2_geo),  # top-right
-                    (x4_geo, y4_geo),   # bottom-left
-                    (x3_geo, y3_geo),  # bottom-right
+                    (x1_geo, y1_geo),
+                    (x2_geo, y2_geo),
+                    (x3_geo, y3_geo),
+                    (x4_geo, y4_geo),
                 ])
 
                 polygons.append(poly)
@@ -175,7 +211,7 @@ class YOLOShapefileConverter:
         # Merge intersecting polygons if requested
         if merge_intersecting:
             polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                polygons, class_ids, class_labels
+                polygons, class_ids, class_labels, overlap_threshold
             )
 
         # Merge with existing shapefile if it exists
@@ -188,7 +224,7 @@ class YOLOShapefileConverter:
             # Merge all intersecting polygons
             if merge_intersecting:
                 polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                    all_polygons, all_class_ids, all_class_labels
+                    all_polygons, all_class_ids, all_class_labels, overlap_threshold
                 )
             else:
                 polygons = all_polygons
@@ -326,7 +362,8 @@ class YOLOShapefileConverter:
                             labels_dir: str | Path,
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
-                            merge_intersecting: bool = True) -> None:
+                            merge_intersecting: bool = True,
+                            overlap_threshold: float = 0.0) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
 
@@ -335,6 +372,10 @@ class YOLOShapefileConverter:
             reference_tif_dir: Directory containing reference TIF files
             output_shapefile: Path to save output shapefile
             merge_intersecting: Whether to merge intersecting boxes (default: True)
+            overlap_threshold: Minimum overlap ratio (0-1) to merge boxes.
+                             0.0 = any intersection merges (default)
+                             0.5 = boxes must overlap by 50% of smaller box
+                             1.0 = boxes must completely overlap
         """
         labels_dir = Path(labels_dir)
         if not labels_dir.exists():
@@ -374,6 +415,7 @@ class YOLOShapefileConverter:
                     output_shapefile=output_shapefile,
                     save=True,
                     merge_intersecting=merge_intersecting,
+                    overlap_threshold=overlap_threshold,
                 )
                 processed_count += 1
 
@@ -445,5 +487,6 @@ if __name__ == "__main__":
         labels_dir="../Orthomosaics/train/",
         reference_tif_dir="../Orthomosaics/image_tiles/",
         output_shapefile="./BV_F2_small.shp",
-        merge_intersecting=True  # Enable merging of intersecting boxes
+        merge_intersecting=True,  # Enable merging of intersecting boxes
+        overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
     )
