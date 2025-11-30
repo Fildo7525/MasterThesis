@@ -84,7 +84,7 @@ class ImageProcessor:
         _, _, _, max_loc = cv.minMaxLoc(result)
 
         dx, dy = max_loc
-        print(f"Shift: dx={dx}, dy={dy}")
+        #print(f"Shift: dx={dx}, dy={dy}")
 
         rows, cols = other_image.shape
         M = np.float32([[1, 0, dx], [0, 1, dy]])
@@ -157,13 +157,13 @@ class ImageProcessor:
                 cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
 
             if do_alignment == Alignment.MATCH_TEMPLATE:
-                print("Doing match template alignment")
+                #print("Doing match template alignment")
                 rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
                 rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
                 img = self.align_to_rgb_match_template(rgb_img, img)
 
             elif do_alignment == Alignment.MATCH_ORB:
-                print("Doing ORB alignment")
+                #print("Doing ORB alignment")
                 rgb_img = self.__helper_combine_bands_to_rgb(input_path_copy)
                 rgb_img = cv.cvtColor(rgb_img, cv.COLOR_RGB2BGR)
                 img = self.align_to_rgb_ORB(rgb_img, img)
@@ -379,7 +379,7 @@ def process_images():
     indices_to_calculate: list[Indices] = []
     recalculate = False
     cwd: Path = Path.cwd()
-    with open(cwd / "conf.json", 'r') as f:
+    with open(cwd / "OpenCV/conf.json", 'r') as f:
         config = json.load(f)
         recalculate = config.get("recalculate", False)
         if recalculate:
@@ -393,33 +393,6 @@ def process_images():
     MASK_DIR = HOME_DIR / config.get("mask_path", "")
     proc = ImageProcessor(
         input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-        output_path=OUTPUT_DIR /  "image_tiles",
-        mask_path=MASK_DIR
-    )
-
-    # Split image into tiles
-    proc.split_image(TILE_SIZE)
-
-    ##################################
-    # Load what indices to calculate #
-    ##################################
-    indices_to_calculate: list[Indices] = []
-    recalculate = False
-    cwd: Path = Path.cwd()
-    with open(cwd / "conf.json", 'r') as f:
-        config = json.load(f)
-        recalculate = config.get("recalculate", False)
-        if recalculate:
-            for index_name in Indices.__members__:
-                if config.get(index_name, False):
-                    indices_to_calculate.append(Indices[index_name])
-
-    print(f"Indices to calculate: {[index.name for index in indices_to_calculate]}")
-
-    OUTPUT_DIR = HOME_DIR / config.get("output_path", "")
-    MASK_DIR = HOME_DIR / config.get("mask_path", "")
-    proc = ImageProcessor(
-        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
         output_path=OUTPUT_DIR /  "image_tiles",
         mask_path=MASK_DIR
     )
@@ -534,19 +507,19 @@ def process_images():
     # Create 3-band image NEN from NGRDI, Extended Red and NIR #
     ############################################################
 
-    dir = OUTPUT_DIR / "NVDI_images"
+    dir = OUTPUT_DIR / "NEN_images"
     if not dir.exists():
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
         proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
-            img_name_ngrdi = img_name.replace(".png", "_rvi.png")
-            img_name_nir = img_name.replace(".png", "_NIR.png")
-            img_name_er = img_name.replace(".png", "_EXTEND_RED.png")
+            img_name_ngrdi = img_name.replace(".tif", "_ngrdi.png")
+            img_name_nir = img_name.replace(".tif", "_NIR.png")
+            img_name_er = img_name.replace(".tif", "_EXTEND_RED.png")
 
             proc.calculate_nen_image(
                 input_paths = NENInputBands(
-                    ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "RVI" / img_name_ngrdi,
+                    ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "NGRDI" / img_name_ngrdi,
                     extended_red_path=OUTPUT_DIR / "extended_red" / img_name_er,
                     nir_path=OUTPUT_DIR / "nir" / img_name_nir,
                 ),

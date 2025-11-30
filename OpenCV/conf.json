@@ -24,7 +24,7 @@
 	"NPCI": false,
 	"OSAVI": false,
 	"RTVICore": false,
-	"RVI": false,
+	"RVI": true,
 	"SAVI": false,
 	"SAVI2": false,
 	"SIPI": false,
