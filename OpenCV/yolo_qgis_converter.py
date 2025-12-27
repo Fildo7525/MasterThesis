@@ -7,6 +7,7 @@ Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
 """
 
+from enum import IntEnum
 from pathlib import Path
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
@@ -16,6 +17,10 @@ import os
 import pandas as pd
 import rasterio
 import numpy as np
+
+class YoloDatasetModel(IntEnum):
+    OBB = 0
+    SEGMENTATION = 1
 
 
 class YOLOShapefileConverter:
@@ -167,34 +172,53 @@ class YOLOShapefileConverter:
                 print(f"Warning: Could not read existing shapefile: {e}")
 
         # Read YOLO annotations
+        model: YoloDatasetModel|None = None
         with open(yolo_label_path, 'r') as f:
             for line in f:
                 parts = line.strip().split()
+                if len(parts) == 5:
+                    model = YoloDatasetModel.OBB
+                elif len(parts) == 9:
+                    model = YoloDatasetModel.SEGMENTATION
+                else:
+                    raise ValueError(f"Invalid YOLO annotation format: {line.strip()}")
 
                 class_id = int(parts[0])
-                x_center = float(parts[1]) * width
-                y_center = float(parts[2]) * height
-                width_box = float(parts[3]) * width
-                height_box = float(parts[4]) * height
 
-                # Calculate corners of the bounding box
-                x_top_left = x_center - width_box / 2
-                y_top_left = y_center - height_box / 2
-                x_top_right = x_center + width_box / 2
-                y_top_right = y_center - height_box / 2
-                x_bottom_right = x_center + width_box / 2
-                y_bottom_right = y_center + height_box / 2
-                x_bottom_left = x_center - width_box / 2
-                y_bottom_left = y_center + height_box / 2
+                x_top_left: float = 0.0
+                y_top_left: float = 0.0
+                x_top_right: float = 0.0
+                y_top_right: float = 0.0
+                x_bottom_right: float = 0.0
+                y_bottom_right: float = 0.0
+                x_bottom_left: float = 0.0
+                y_bottom_left: float = 0.0
 
-                # x_top_left = float(parts[1]) * width
-                # y_top_left = float(parts[2]) * height
-                # x_top_right = float(parts[3]) * width
-                # y_top_right = float(parts[4]) * height
-                # x_bottom_right = float(parts[5]) * width
-                # y_bottom_right = float(parts[6]) * height
-                # x_bottom_left = float(parts[7]) * width
-                # y_bottom_left = float(parts[8]) * height
+                if model == YoloDatasetModel.OBB and len(parts) == 5:
+                    x_center = float(parts[1]) * width
+                    y_center = float(parts[2]) * height
+                    width_box = float(parts[3]) * width
+                    height_box = float(parts[4]) * height
+
+                    # Calculate corners of the bounding box
+                    x_top_left = x_center - width_box / 2
+                    y_top_left = y_center - height_box / 2
+                    x_top_right = x_center + width_box / 2
+                    y_top_right = y_center - height_box / 2
+                    x_bottom_right = x_center + width_box / 2
+                    y_bottom_right = y_center + height_box / 2
+                    x_bottom_left = x_center - width_box / 2
+                    y_bottom_left = y_center + height_box / 2
+
+                if model == YoloDatasetModel.SEGMENTATION and len(parts) == 9:
+                    x_top_left = float(parts[1]) * width
+                    y_top_left = float(parts[2]) * height
+                    x_top_right = float(parts[3]) * width
+                    y_top_right = float(parts[4]) * height
+                    x_bottom_right = float(parts[5]) * width
+                    y_bottom_right = float(parts[6]) * height
+                    x_bottom_left = float(parts[7]) * width
+                    y_bottom_left = float(parts[8]) * height
 
                 # Transform 4 corners to georeferenced coordinates
                 x1_geo, y1_geo = transform * (x_top_left, y_top_left)
@@ -264,7 +288,10 @@ class YOLOShapefileConverter:
     def shapefile_to_yolo(self,
                          shapefile_path: str,
                          reference_tif_file: str,
-                         output_yolo_label: str):
+                         output_yolo_label: str,
+                         *,
+                         database_model: YoloDatasetModel,
+                        ):
         """
         Convert shapefile annotations to YOLOv5 format for a specific cutout
 
@@ -272,6 +299,7 @@ class YOLOShapefileConverter:
             shapefile_path: Input shapefile path
             reference_tif_file: Reference TIF file for the cutout
             output_yolo_label: Output YOLO label file path (.txt)
+            database_model: (YoloDatasetModel) YOLO dataset model (OBB or SEGMENTATION)
         """
         # Validate paths
         shp_path = Path(shapefile_path)
@@ -334,29 +362,48 @@ class YOLOShapefileConverter:
                 x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
                 x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
-                # Normalize to YOLO format [0, 1]
-                x_top_left /= width
-                y_top_left /= height
-                x_top_right /= width
-                y_top_right /= height
-                x_bottom_right /= width
-                y_bottom_right /= height
-                x_bottom_left /= width
-                y_bottom_left /= height
+                # Get class ID
+                class_id = int(row.get('class_id', 0))
 
-                arr = [
-                   x_top_left, y_top_left,
-                   x_top_right, y_top_right,
-                   x_bottom_right, y_bottom_right,
-                   x_bottom_left, y_bottom_left,
-               ]
+                arr = []
+
+                if database_model == YoloDatasetModel.SEGMENTATION:
+                    # Normalize to YOLO format [0, 1]
+                    x_top_left /= width
+                    y_top_left /= height
+                    x_top_right /= width
+                    y_top_right /= height
+                    x_bottom_right /= width
+                    y_bottom_right /= height
+                    x_bottom_left /= width
+                    y_bottom_left /= height
+
+                    arr = [
+                       x_top_left, y_top_left,
+                       x_top_right, y_top_right,
+                       x_bottom_right, y_bottom_right,
+                       x_bottom_left, y_bottom_left,
+                    ]
+
+                elif database_model == YoloDatasetModel.OBB:
+                    # Calculate center, width, height
+                    x_center = (x_top_left + x_top_right) / 2
+                    y_center = (y_top_left + y_bottom_left) / 2
+                    box_width = x_top_right - x_top_left
+                    box_height = y_bottom_left - y_top_left
+
+                    # Normalize to YOLO format [0, 1]
+                    x_center /= width
+                    y_center /= height
+                    box_width /= width
+                    box_height /= height
+
+                    arr = [x_center, y_center, box_width, box_height]
 
                 # Skip if any coordinate is out of bounds
                 if not all(0.0 <= v <= 1.0 for v in arr):
+                    print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
                     continue
-
-                # Get class ID
-                class_id = int(row.get('class_id', 0))
 
                 coords = ' '.join([f"{v:.6f}" for v in arr])
                 f.write(f"{class_id} {coords}\n")
@@ -448,7 +495,10 @@ class YOLOShapefileConverter:
                                    shapefile_path: str,
                                    cutouts_dir: str,
                                    output_labels_dir: str,
-                                   tif_extension: str = '.tif'):
+                                   tif_extension: str = '.tif',
+                                   *,
+                                   database_model: YoloDatasetModel,
+                                  ):
         """
         Convert shapefile to YOLO labels for multiple cutout TIF files
 
@@ -457,6 +507,7 @@ class YOLOShapefileConverter:
             cutouts_dir: Directory containing cutout TIF files
             output_labels_dir: Directory to save YOLO label files
             tif_extension: Extension of TIF files (default: '.tif')
+            database_model: (YoloDatasetModel) YOLO dataset model (OBB or SEGMENTATION)
         """
         cutouts_path = Path(cutouts_dir)
         if not cutouts_path.exists():
@@ -478,7 +529,8 @@ class YOLOShapefileConverter:
                 annotations = self.shapefile_to_yolo(
                     shapefile_path=shapefile_path,
                     reference_tif_file=str(tif_file),
-                    output_yolo_label=str(output_label)
+                    output_yolo_label=str(output_label),
+                    database_model=database_model
                 )
 
                 results.append({
