@@ -170,18 +170,31 @@ class YOLOShapefileConverter:
         with open(yolo_label_path, 'r') as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) < 9:
-                    continue
 
                 class_id = int(parts[0])
-                x_top_left = float(parts[1]) * width
-                y_top_left = float(parts[2]) * height
-                x_top_right = float(parts[3]) * width
-                y_top_right = float(parts[4]) * height
-                x_bottom_right = float(parts[5]) * width
-                y_bottom_right = float(parts[6]) * height
-                x_bottom_left = float(parts[7]) * width
-                y_bottom_left = float(parts[8]) * height
+                x_center = float(parts[1]) * width
+                y_center = float(parts[2]) * height
+                width_box = float(parts[3]) * width
+                height_box = float(parts[4]) * height
+
+                # Calculate corners of the bounding box
+                x_top_left = x_center - width_box / 2
+                y_top_left = y_center - height_box / 2
+                x_top_right = x_center + width_box / 2
+                y_top_right = y_center - height_box / 2
+                x_bottom_right = x_center + width_box / 2
+                y_bottom_right = y_center + height_box / 2
+                x_bottom_left = x_center - width_box / 2
+                y_bottom_left = y_center + height_box / 2
+
+                # x_top_left = float(parts[1]) * width
+                # y_top_left = float(parts[2]) * height
+                # x_top_right = float(parts[3]) * width
+                # y_top_right = float(parts[4]) * height
+                # x_bottom_right = float(parts[5]) * width
+                # y_bottom_right = float(parts[6]) * height
+                # x_bottom_left = float(parts[7]) * width
+                # y_bottom_left = float(parts[8]) * height
 
                 # Transform 4 corners to georeferenced coordinates
                 x1_geo, y1_geo = transform * (x_top_left, y_top_left)
@@ -402,7 +415,10 @@ class YOLOShapefileConverter:
             return None
 
         processed_count = 0
-        for label_file in label_files:
+        for index, label_file in enumerate(label_files):
+
+            print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
+
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
             if not tif_file.exists():
@@ -482,11 +498,19 @@ class YOLOShapefileConverter:
 if __name__ == "__main__":
     converter = YOLOShapefileConverter()
 
+    labels_dir = "/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_mid.v1i.yolov12/train/labels"
+
+    for label_file in os.listdir(labels_dir):
+        if label_file.endswith('.txt'):
+            index = label_file.find("_NEN")
+            new_file_name = label_file[:index] + ".txt"
+            os.rename(os.path.join(labels_dir, label_file), os.path.join(labels_dir, new_file_name))
+
     # Example: Convert cutout YOLO labels to shapefile with merging
     converter.labels_to_shapefile(
-        labels_dir="../Orthomosaics/train/",
-        reference_tif_dir="../Orthomosaics/image_tiles/",
-        output_shapefile="./BV_F2_small.shp",
+        labels_dir=labels_dir,
+        reference_tif_dir="/home/samuel/SDU/20250827_Bjørnkjærvej_TestFlight_2_mid_processed_images/processed_output/image_tiles",
+        output_shapefile="/home/samuel/MasterThesis/OpenCV/MID/BV_F2_small.shp",
         merge_intersecting=True,  # Enable merging of intersecting boxes
         overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
     )
