@@ -7,6 +7,7 @@ Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
 """
 
+from enum import IntEnum
 from pathlib import Path
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
@@ -16,6 +17,10 @@ import os
 import pandas as pd
 import rasterio
 import numpy as np
+
+class YoloDatasetModel(IntEnum):
+    OBB = 0
+    SEGMENTATION = 1
 
 
 class YOLOShapefileConverter:
@@ -167,34 +172,53 @@ class YOLOShapefileConverter:
                 print(f"Warning: Could not read existing shapefile: {e}")
 
         # Read YOLO annotations
+        model: YoloDatasetModel|None = None
         with open(yolo_label_path, 'r') as f:
             for line in f:
                 parts = line.strip().split()
+                if len(parts) == 5:
+                    model = YoloDatasetModel.OBB
+                elif len(parts) == 9:
+                    model = YoloDatasetModel.SEGMENTATION
+                else:
+                    raise ValueError(f"Invalid YOLO annotation format: {line.strip()}")
 
                 class_id = int(parts[0])
-                x_center = float(parts[1]) * width
-                y_center = float(parts[2]) * height
-                width_box = float(parts[3]) * width
-                height_box = float(parts[4]) * height
 
-                # Calculate corners of the bounding box
-                x_top_left = x_center - width_box / 2
-                y_top_left = y_center - height_box / 2
-                x_top_right = x_center + width_box / 2
-                y_top_right = y_center - height_box / 2
-                x_bottom_right = x_center + width_box / 2
-                y_bottom_right = y_center + height_box / 2
-                x_bottom_left = x_center - width_box / 2
-                y_bottom_left = y_center + height_box / 2
+                x_top_left: float = 0.0
+                y_top_left: float = 0.0
+                x_top_right: float = 0.0
+                y_top_right: float = 0.0
+                x_bottom_right: float = 0.0
+                y_bottom_right: float = 0.0
+                x_bottom_left: float = 0.0
+                y_bottom_left: float = 0.0
 
-                # x_top_left = float(parts[1]) * width
-                # y_top_left = float(parts[2]) * height
-                # x_top_right = float(parts[3]) * width
-                # y_top_right = float(parts[4]) * height
-                # x_bottom_right = float(parts[5]) * width
-                # y_bottom_right = float(parts[6]) * height
-                # x_bottom_left = float(parts[7]) * width
-                # y_bottom_left = float(parts[8]) * height
+                if model == YoloDatasetModel.OBB and len(parts) == 5:
+                    x_center = float(parts[1]) * width
+                    y_center = float(parts[2]) * height
+                    width_box = float(parts[3]) * width
+                    height_box = float(parts[4]) * height
+
+                    # Calculate corners of the bounding box
+                    x_top_left = x_center - width_box / 2
+                    y_top_left = y_center - height_box / 2
+                    x_top_right = x_center + width_box / 2
+                    y_top_right = y_center - height_box / 2
+                    x_bottom_right = x_center + width_box / 2
+                    y_bottom_right = y_center + height_box / 2
+                    x_bottom_left = x_center - width_box / 2
+                    y_bottom_left = y_center + height_box / 2
+
+                if model == YoloDatasetModel.SEGMENTATION and len(parts) == 9:
+                    x_top_left = float(parts[1]) * width
+                    y_top_left = float(parts[2]) * height
+                    x_top_right = float(parts[3]) * width
+                    y_top_right = float(parts[4]) * height
+                    x_bottom_right = float(parts[5]) * width
+                    y_bottom_right = float(parts[6]) * height
+                    x_bottom_left = float(parts[7]) * width
+                    y_bottom_left = float(parts[8]) * height
 
                 # Transform 4 corners to georeferenced coordinates
                 x1_geo, y1_geo = transform * (x_top_left, y_top_left)
