@@ -20,3 +20,5 @@ AI/YOLO/obb.zip
 Data/indices.qgz
 AI/NEN
 AI/NEN_sorted
+AI/yolo12
+AI/__pycache__
