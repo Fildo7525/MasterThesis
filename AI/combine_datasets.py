@@ -8,9 +8,9 @@ from sort_roboflow_dataset_train_test_valid import sort_dataset, create_data_yam
 import shutil
 
 
-DATASET_1_PATH = Path("/home/samuel/Downloads/dataset_new_version/Bjornkjaervej_TestFlight_2_bigger_yolov12")
-DATASET_2_PATH = Path("/home/samuel/Downloads/dataset_new_version/Bjornkjaervej_TestFlight_2_mid_yolov12")
-DATASET_3_PATH = Path("/home/samuel/Downloads/dataset_new_version/Bjornkjaervej_TestFlight_2_small_yolov12")
+DATASET_1_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_bigger_yolo12")
+DATASET_2_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_mid_yolo12")
+DATASET_3_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_small_yolo12")
 
 TRAIN_PERCENT = 0.70
 VAL_PERCENT = 0.25
@@ -46,7 +46,7 @@ def rename_dataset_contents_based_on_last_folder(folder_path):
     if not folder_path.exists():
         print(f"Folder does not exist: {folder_path}")
         return
-    
+
     # get Bjornkjaervej_TestFlight_2_xxx from the path
     root_index = folder_path.as_posix().rfind("/") + 1
     root_name = folder_path.as_posix()[root_index:]
@@ -91,12 +91,15 @@ def combine_datasets(dataset_paths, output_path, normalize_classes=False):
     if len(dataset_paths) < 2:
         print("At least two datasets are required to combine.")
         return
-    
+
     for dataset_path in dataset_paths:
         if not os.path.exists(dataset_path):
             print(f"Dataset path does not exist: {dataset_path}")
             return
-        
+
+    if normalize_classes:
+        output_path = Path(str(output_path) + "_nomalised")
+
     output_path = Path(output_path)
     os.makedirs(output_path, exist_ok=True)
 
@@ -137,24 +140,6 @@ def combine_datasets(dataset_paths, output_path, normalize_classes=False):
             if normalize_classes:
                 normalize_classes_to_basic_one(dst_label_path)
 
-
-
-if __name__ == "__main__":
-    output_path = Path("/home/samuel/Downloads/dataset_new_version/combined_dataset")
-
-    datasets = [DATASET_1_PATH, DATASET_2_PATH, DATASET_3_PATH]
-
-    for dataset_path in datasets:
-        rename_dataset_contents_based_on_last_folder(dataset_path)
-
-
-    combine_datasets(datasets, output_path, normalize_classes=False)
-
-    output_path = Path("/home/samuel/Downloads/dataset_new_version/combined_dataset_normalized")
-    combine_datasets(datasets, output_path, normalize_classes=True)
-
-    print(f"Datasets combined and saved to {output_path}")
-
     sort_dataset(
         dataset_path=output_path,
         output_path=output_path / "sorted",
@@ -170,3 +155,20 @@ if __name__ == "__main__":
         output_path=output_path / "sorted",
         classes=classes
     )
+
+
+if __name__ == "__main__":
+    output_path = Path("/home/fildo7525/SDU/MasterThesis/AI/yolo12/combined_dataset")
+
+
+    datasets = [DATASET_1_PATH, DATASET_2_PATH, DATASET_3_PATH]
+
+    for dataset_path in datasets:
+        rename_dataset_contents_based_on_last_folder(dataset_path)
+
+
+    combine_datasets(datasets, output_path, normalize_classes=False)
+    combine_datasets(datasets, output_path, normalize_classes=True)
+
+    print(f"Datasets combined and saved to {output_path}")
+
