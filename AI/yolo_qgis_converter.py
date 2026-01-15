@@ -51,7 +51,7 @@ class YOLOShapefileConverter:
 
 
     def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int],
-                                    class_labels: List[str], overlap_threshold: float = 0.0):
+                                    class_labels: List[str], *, overlap_threshold: float = 0.1):
         """
         Merge intersecting polygons into larger bounding boxes.
 
@@ -124,7 +124,7 @@ class YOLOShapefileConverter:
                           save: bool = True,
                           class_names: Optional[List[str]] = None,
                           merge_intersecting: bool = True,
-                          overlap_threshold: float = 0.0):
+                          overlap_threshold: float = 0.1):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -248,7 +248,7 @@ class YOLOShapefileConverter:
         # Merge intersecting polygons if requested
         if merge_intersecting:
             polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                polygons, class_ids, class_labels, overlap_threshold
+                polygons, class_ids, class_labels, overlap_threshold = overlap_threshold
             )
 
         # Merge with existing shapefile if it exists
@@ -261,7 +261,7 @@ class YOLOShapefileConverter:
             # Merge all intersecting polygons
             if merge_intersecting:
                 polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                    all_polygons, all_class_ids, all_class_labels, overlap_threshold
+                    all_polygons, all_class_ids, all_class_labels, overlap_threshold = overlap_threshold
                 )
             else:
                 polygons = all_polygons
@@ -423,7 +423,7 @@ class YOLOShapefileConverter:
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
                             merge_intersecting: bool = True,
-                            overlap_threshold: float = 0.0) -> None:
+                            overlap_threshold: float = 0.1) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
 
@@ -433,7 +433,7 @@ class YOLOShapefileConverter:
             output_shapefile: Path to save output shapefile
             merge_intersecting: Whether to merge intersecting boxes (default: True)
             overlap_threshold: Minimum overlap ratio (0-1) to merge boxes.
-                             0.0 = any intersection merges (default)
+                             0.1 = any intersection merges (default)
                              0.5 = boxes must overlap by 50% of smaller box
                              1.0 = boxes must completely overlap
         """
