@@ -23,6 +23,22 @@ class YoloDatasetModel(IntEnum):
     SEGMENTATION = 1
 
 
+class YoloConfidenceMerging(IntEnum):
+    MAX = 0
+    AVERAGE = 1
+    MIN = 2
+
+    def calculate_confidence(self, confidences: List[float]) -> float:
+        if self == YoloConfidenceMerging.MAX:
+            return max(confidences)
+        elif self == YoloConfidenceMerging.AVERAGE:
+            return sum(confidences) / len(confidences)
+        elif self == YoloConfidenceMerging.MIN:
+            return min(confidences)
+        else:
+            raise ValueError("Invalid confidence inheritance method")
+
+
 class YOLOShapefileConverter:
     """Convert between YOLOv5 annotations and georeferenced shapefiles"""
 
@@ -50,8 +66,91 @@ class YOLOShapefileConverter:
         return intersection_area / smaller_area
 
 
+    def merge_intersecting_polygons(self,
+        polygons: List[Polygon],
+        class_ids: List[int],
+        class_labels: List[str],
+        class_confidences: List[float],
+        *,
+        overlap_threshold: float = 0.1,
+        confidence_inheritance: YoloConfidenceMerging = YoloConfidenceMerging.MAX
+        ) -> tuple[List[Polygon], List[int], List[str], List[float]]:
+        """
+        Merge intersecting polygons into larger bounding boxes. The new merged box will inherrit the highest confidence of
+        the merged boxes.
+
+        Args:
+            polygons: List of Polygon objects.
+            class_ids: List of class IDs corresponding to polygons.
+            class_labels: List of class labels corresponding to polygons.
+            class_confidences: List of class confidences.
+            overlap_threshold: Minimum overlap ratio (0-1) required to merge boxes.
+                             0.1 = any intersection merges (default)
+                             1.0 = boxes must completely overlap
+
+            confidence_inheritance: Method to inherit confidence for merged boxes.
+
+        Returns:
+            Tuple of (merged_polygons, merged_class_ids, merged_class_labels)
+        """
+        if len(polygons) == 0:
+            return [], [], [], []
+
+        # Clamp overlap threshold to valid range
+        overlap_threshold = max(0.0, min(1.0, overlap_threshold))
+
+        # Create a list of indices that haven't been merged yet
+        unmerged_indices = set(range(len(polygons)))
+        merged_polygons = []
+        merged_class_ids = []
+        merged_class_labels = []
+        merged_confidences = []
+
+        while unmerged_indices:
+            # Start with the first unmerged polygon
+            current_idx = unmerged_indices.pop()
+            current_group = [current_idx]
+            current_poly = polygons[current_idx]
+            current_confidences = [class_confidences[current_idx]]
+
+            # Keep looking for intersections until no more are found
+            changed = True
+            while changed:
+                changed = False
+                indices_to_remove = []
+
+                for idx in unmerged_indices:
+                    # Check if overlap ratio meets threshold
+                    overlap_ratio = self._calculate_overlap_ratio(current_poly, polygons[idx])
+
+                    if overlap_ratio >= overlap_threshold:
+                        current_group.append(idx)
+                        # Union the polygons
+                        current_poly = unary_union([current_poly, polygons[idx]])
+                        indices_to_remove.append(idx)
+                        current_confidences.append(class_confidences[idx])
+                        changed = True
+
+                # Remove merged indices
+                for idx in indices_to_remove:
+                    unmerged_indices.remove(idx)
+
+            # Get the bounding box of the merged polygon
+            merged_bbox = box(*current_poly.bounds)
+            merged_polygons.append(merged_bbox)
+
+            # Calculate merged confidence
+            merged_confidences.append(confidence_inheritance.calculate_confidence(current_confidences))
+
+            # Use the class of the first polygon in the group
+            merged_class_ids.append(class_ids[current_group[0]])
+            merged_class_labels.append(class_labels[current_group[0]])
+
+        return merged_polygons, merged_class_ids, merged_class_labels, merged_confidences
+
+
     def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int],
-                                    class_labels: List[str], overlap_threshold: float = 0.0):
+                                    class_labels: List[str], *, overlap_threshold: float = 0.1):
         """
         Merge intersecting polygons into larger bounding boxes.
 
@@ -124,7 +223,7 @@ class YOLOShapefileConverter:
                           save: bool = True,
                           class_names: Optional[List[str]] = None,
                           merge_intersecting: bool = True,
-                          overlap_threshold: float = 0.0):
+                          overlap_threshold: float = 0.1):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -248,7 +347,7 @@ class YOLOShapefileConverter:
         # Merge intersecting polygons if requested
         if merge_intersecting:
             polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                polygons, class_ids, class_labels, overlap_threshold
+                polygons, class_ids, class_labels, overlap_threshold = overlap_threshold
             )
 
         # Merge with existing shapefile if it exists
@@ -261,7 +360,7 @@ class YOLOShapefileConverter:
             # Merge all intersecting polygons
             if merge_intersecting:
                 polygons, class_ids, class_labels = self._merge_intersecting_polygons(
-                    all_polygons, all_class_ids, all_class_labels, overlap_threshold
+                    all_polygons, all_class_ids, all_class_labels, overlap_threshold = overlap_threshold
                 )
             else:
                 polygons = all_polygons
@@ -423,7 +522,7 @@ class YOLOShapefileConverter:
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
                             merge_intersecting: bool = True,
-                            overlap_threshold: float = 0.0) -> None:
+                            overlap_threshold: float = 0.1) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
 
@@ -433,7 +532,7 @@ class YOLOShapefileConverter:
             output_shapefile: Path to save output shapefile
             merge_intersecting: Whether to merge intersecting boxes (default: True)
             overlap_threshold: Minimum overlap ratio (0-1) to merge boxes.
-                             0.0 = any intersection merges (default)
+                             0.1 = any intersection merges (default)
                              0.5 = boxes must overlap by 50% of smaller box
                              1.0 = boxes must completely overlap
         """
