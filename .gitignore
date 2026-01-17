@@ -22,3 +22,4 @@ AI/NEN
 AI/NEN_sorted
 AI/yolo12
 AI/__pycache__
+runs/*
