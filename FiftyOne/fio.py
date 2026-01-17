@@ -1,27 +1,23 @@
 import fiftyone as fo
+import fiftyone.brain as fob
 import os
 from pathlib import Path
 import cv2 as cv
+import yaml
 
 
 def convert_xyxy_boxes(sample, boxes):
-    new_boxes = []
-
     img = cv.imread(sample.filepath)
-    h, w, _ = img.shape
-    del img
+    h, w = img.shape[:2]
 
-    for box in boxes:
+    new_boxes = []
+    for x1, y1, x2, y2 in boxes:
+        x = x1 / w
+        y = y1 / h
+        bw = (x2 - x1) / w
+        bh = (y2 - y1) / h
+        new_boxes.append([x, y, bw, bh])
 
-        # Normalize X and Y by width and height
-        nx = box[0] / w
-        ny = box[1] / h
-
-        # Calculate width and height and normalize as well
-        nw = (box[2] - box[0]) / w
-        nh = (box[3] - box[1]) / h
-        new_box = [nx, ny, nw, nh]
-        new_boxes.append(new_box)
     return new_boxes
 
 cwd = Path(os.getcwd())
@@ -40,6 +36,11 @@ dataset = fo.Dataset.from_dir(
         yaml_path=yaml_path,
         split="test",
 )
+
+dataset.compute_metadata()
+
+with open(yaml_path, "r") as f:
+    class_names = yaml.safe_load(f)["names"]
 
 
 for sample in dataset:
@@ -68,7 +69,7 @@ for sample in dataset:
         labels = []
         confs = []
         for ann in list_of_anns:
-            labels.append(f"run{ann[0]}")
+            labels.append(class_names[int(ann[0])])
             confs.append(float(ann[1]))
             boxes.append([float(x) for x in ann[2:]])
 
@@ -90,14 +91,20 @@ for sample in dataset:
     sample.save()
 
 for run in range(runs):
+    name = f"run{run}"
     results = dataset.evaluate_detections(
-            f"run{run}",
-            gt_filed="ground_truth",
-            eval_key=f"eval_{run}",
-            compute_mAP=True,
+        name,
+        gt_field="ground_truth",
+        eval_key=f"eval_{run}",
+        compute_mAP=True,
+        progress=True,
     )
 
-    print(f"mAP score:\n{results.mAP()}")
+    results.print_report()
+
+fob.compute_mistakenness(dataset, "run4", label_field='ground_truth')
+
+# view = ( dataset .sort_by("eval_fn", reverse=True) .filter_labels("run4", F("eval") > 0.5 )
 
 session = fo.launch_app(dataset, port=5151)
 session.wait(-1)
