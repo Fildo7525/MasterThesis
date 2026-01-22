@@ -16,6 +16,8 @@ AI/YOLO/labels
 AI/YOLO/dataset.yaml
 runs/obb
 AI/yolo11n.pt
+AI/yolo12n.pt
+AI/rtdetr-l.pt
 AI/cvat
 AI/YOLO/obb.zip
 Data/indices.qgz
