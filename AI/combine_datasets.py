@@ -8,13 +8,18 @@ from sort_roboflow_dataset_train_test_valid import sort_dataset, create_data_yam
 import shutil
 
 
-DATASET_1_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_bigger_yolo12")
-DATASET_2_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_mid_yolo12")
-DATASET_3_PATH = Path("/home/fildo7525/SDU/MasterThesis/Orthomosaics/Bjørnkjærvej_TestFlight_2_small_yolo12")
+DATASET_1_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_bigger")
+DATASET_2_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_mid")
+DATASET_3_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_small")
+
+ORIGINAL_DATASET_1_PATH = Path("/home/samuel/SDU/Bjornkjaervej_TestFlight_2_bigger/processed_output/NEN_images")
+ORIGINAL_DATASET_2_PATH = Path("/home/samuel/SDU/Bjornkjaervej_TestFlight_2_mid/processed_output/NEN_images")
+ORIGINAL_DATASET_3_PATH = Path("/home/samuel/SDU/Bjornkjaervej_TestFlight_2_small/processed_output/NEN_images")
+
 
 TRAIN_PERCENT = 0.70
-VAL_PERCENT = 0.25
-TEST_PERCENT = 0.05
+VAL_PERCENT = 0.20
+TEST_PERCENT = 0.10
 
 def normalize_classes_to_basic_one(label_file_path: Path):
     # Read all lines first
@@ -86,6 +91,84 @@ def rename_dataset_contents_based_on_last_folder(folder_path):
             os.rename(label_path, new_label_path)
             print(f"Renamed {label_name} to {new_label_name}")
 
+def combine_roboflow_labels_with_original_images(original_image_paths, combined_dataset_paths, out):
+
+    original_images = []
+    roboflow_images = []
+    roboflow_labels = []
+    dataset_image_paths = []
+    dataset_label_paths = []
+
+    os.makedirs(out / "images", exist_ok=True)
+    os.makedirs(out / "labels", exist_ok=True)
+
+    for original_image_path in original_image_paths:
+        for image_file in os.listdir(original_image_path):
+            src_image_path = original_image_path / image_file
+            if os.path.isfile(src_image_path):
+                original_images.append(image_file)
+
+    for dataset_path in combined_dataset_paths:
+        combined_images_path = dataset_path / "train" / "images"
+        combined_labels_path = dataset_path / "train" / "labels"
+        dataset_image_paths.append(combined_images_path)
+        dataset_label_paths.append(combined_labels_path)
+
+    for dataset_image_path in dataset_image_paths:
+        print(dataset_image_path)
+        for image_file in os.listdir(dataset_image_path):
+            src_image_path = dataset_image_path / image_file
+            if os.path.isfile(src_image_path):
+                roboflow_images.append(image_file)
+
+    for dataset_label_path in dataset_label_paths:
+        for label_file in os.listdir(dataset_label_path):
+            src_label_path = dataset_label_path / label_file
+            if os.path.isfile(src_label_path):
+                roboflow_labels.append(label_file)
+
+    for original_image in original_images:
+        original_image_name = original_image[:-4]  # remove .png
+
+        for i, roboflow_image in enumerate(roboflow_images):
+            if roboflow_image.startswith(original_image_name):
+            # find coresponding label file
+                for i, label_file in enumerate(roboflow_labels):
+                    if label_file.startswith(original_image_name):
+                        # copy original image and robflow label to out folder
+                        # copy image
+                        for original_image_path in original_image_paths:
+                            src_image_path = original_image_path / original_image
+                            if os.path.isfile(src_image_path):
+                                dst_image_path = out / "images" / original_image
+                                shutil.copy2(src_image_path, dst_image_path)
+                                print(f"Copied image: {src_image_path} to {dst_image_path}")
+                        # copy label
+                        for dataset_label_path in dataset_label_paths:
+                            src_label_path = dataset_label_path / label_file
+                            if os.path.isfile(src_label_path):
+                                index = label_file.find("_png")
+                                label_file = label_file[:index] + ".txt"
+                                dst_label_path = out / "labels" / label_file
+                                shutil.copy2(src_label_path, dst_label_path)
+                                print(f"Copied label: {src_label_path} to {dst_label_path}")
+
+                                normalize_classes_to_basic_one(dst_label_path)
+
+    sort_dataset(
+        dataset_path=out,
+        output_path=out / "sorted",
+        train_percent=TRAIN_PERCENT,
+        val_percent=VAL_PERCENT,
+        test_percent=TEST_PERCENT
+    )
+    print(f"Combined dataset sorted and saved to {out / 'sorted'}")
+    create_data_yaml(
+        output_path=out / "sorted",
+        classes=["Potatoes"]
+    )
+
+
 def combine_datasets(dataset_paths, output_path, normalize_classes=False):
 
     if len(dataset_paths) < 2:
@@ -156,19 +239,48 @@ def combine_datasets(dataset_paths, output_path, normalize_classes=False):
         classes=classes
     )
 
+def rename_original_images(original_image_path):
+    images = os.listdir(original_image_path)
+
+    if len(images) == 0:
+        print(f"No images found in {original_image_path}")
+        return
+    
+    last_index = original_image_path.as_posix().rfind("/processed_output/NEN_images")
+    folder_root_name = original_image_path.as_posix()[:last_index]
+    last_slash_index = folder_root_name.rfind("/")
+    folder_name = folder_root_name[last_slash_index + 1:]
+    print(f"Renaming images in {original_image_path} based on folder name: {folder_name}")
+    for i, image_name in enumerate(images):
+        image_path = original_image_path / image_name
+        if image_path.is_file():
+            if folder_name in image_name:
+                print(f"Skipping {image_name}, already renamed.")
+                continue
+            new_image_name = f"{folder_name}_{image_name}"
+            new_image_path = original_image_path / new_image_name
+            os.rename(image_path, new_image_path)
+            print(f"Renamed {image_name} to {new_image_name}")
+
+
 
 if __name__ == "__main__":
-    output_path = Path("/home/fildo7525/SDU/MasterThesis/AI/yolo12/combined_dataset")
+    output_path = Path("/home/samuel/Downloads//combined_dataset")
 
 
     datasets = [DATASET_1_PATH, DATASET_2_PATH, DATASET_3_PATH]
+    original_image_paths = [ORIGINAL_DATASET_1_PATH, ORIGINAL_DATASET_2_PATH, ORIGINAL_DATASET_3_PATH]
 
     for dataset_path in datasets:
         rename_dataset_contents_based_on_last_folder(dataset_path)
 
+    rename_original_images(ORIGINAL_DATASET_1_PATH)
+    rename_original_images(ORIGINAL_DATASET_2_PATH)
+    rename_original_images(ORIGINAL_DATASET_3_PATH)
 
-    combine_datasets(datasets, output_path, normalize_classes=False)
-    combine_datasets(datasets, output_path, normalize_classes=True)
+    combine_roboflow_labels_with_original_images(original_image_paths, datasets, output_path)
+    # combine_datasets(datasets, output_path, normalize_classes=False)
+    # combine_datasets(datasets, output_path, normalize_classes=True)
 
     print(f"Datasets combined and saved to {output_path}")
 

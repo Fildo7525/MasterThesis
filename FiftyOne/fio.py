@@ -23,7 +23,7 @@ def convert_xyxy_boxes(sample, boxes):
 cwd = Path(os.getcwd())
 parent_dir = cwd.parent
 
-dataset_path = parent_dir / "AI" / "yolo12" / "combined_dataset_nomalised" / "sorted" / "images"
+dataset_path = Path("/home/samuel/Downloads/dataset_new_version_roboflow2/combined_dataset_normalized/sorted") / "images"
 yaml_path = dataset_path.parent / "dataset.yaml"
 dataset_type = fo.types.YOLOv5Dataset
 
@@ -102,7 +102,7 @@ for run in range(runs):
 
     results.print_report()
 
-fob.compute_mistakenness(dataset, "run4", label_field='ground_truth')
+fob.compute_mistakenness(dataset, "run1", label_field='ground_truth')
 
 # view = ( dataset .sort_by("eval_fn", reverse=True) .filter_labels("run4", F("eval") > 0.5 )
 
