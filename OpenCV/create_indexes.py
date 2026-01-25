@@ -1,3 +1,4 @@
+import cv2
 import rasterio
 import numpy as np
 from enum import IntEnum
@@ -112,7 +113,7 @@ def compute_index(name, bands):
         "GNDVI": lambda: (NIR - G) / (NIR + G + eps),
         "MGRVI": lambda: (G**2 - R**2) / (G**2 + R**2 + eps),
         "MSAVI2": lambda: 0.5*(2*NIR+1-np.sqrt((2*NIR+1)**2-8*(NIR-R))),
-        "MSRI": lambda: ((NIR - R) - 1) / np.sqrt(NIR / R + 1),
+        "MSRI": lambda: ((NIR - R) - 1) / (np.sqrt(NIR / (R + eps) + 1) + eps),
         "NDRE": lambda: (NIR - RE) / (NIR + RE + eps),
         "NDVI": lambda: (NIR - R) / (NIR + R + eps),
         "NGBDI": lambda: (G - B) / (G + B + eps),
@@ -160,8 +161,7 @@ def calculate_all_indices(input_path, output_path, indices):
             img_index = compute_index(index.name, bands)
 
             out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.tif"
-            with rasterio.open(out_path, "w", **meta) as dst:
-                dst.write(img_index.astype(np.float32), 1)
+            cv2.imwrite(str(out_path), img_index.astype(np.float32))    
 
 
 def calculate_index(input_path, output_path, index: Indices):
