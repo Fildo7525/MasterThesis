@@ -99,7 +99,7 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
 
 if __name__ == "__main__":
     # Example usage
-    tile_size = 640
+    tile_size = 1024
     overlap = 100
 
     print(os.listdir(ORTHO_IMG_DIR))
