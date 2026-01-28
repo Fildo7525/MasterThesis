@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 from argparse import ArgumentParser
 from tqdm import tqdm
+from create_indexes import Bands
 
 ORTHO_IMG_DIR = Path("../Orthomosaics/")
 
@@ -41,13 +42,18 @@ def process_tile(src, i, j, tile_size, output_dir, overlap):
         "transform": transform
     })
 
+    names = [band.name for band in Bands]
+
     # Output filename
     tile_name = f"tile_{i}_{j}.tif"
     out_path = os.path.join(output_dir, tile_name)
 
     # Read the window and write it out
+    i = 0
     with rasterio.open(out_path, "w", **tile_profile) as dst:
         dst.write(src.read(window=window))
+        dst.set_band_description(i+1, names[i])
+        i += 1
 
 
 def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0):
