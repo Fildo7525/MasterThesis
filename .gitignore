@@ -34,7 +34,5 @@ OpenCV/BV_F2_small.shp
 OpenCV/BV_F2_small.shx
 OpenCV/images
 OpenCV/output
-OpenCV/tile_2_5_NRN.png
-OpenCV/tile_2_5_NRN_annotated.png
-OpenCV/tile_2_5_NRN_annotated.tif.aux.xml
-OpenCV/tile_2_5_b32.tif.aux.xml
+OpenCV/*.png
+*.tif.aux.xml
