@@ -10,7 +10,18 @@ from tqdm import tqdm
 
 DBG = False
 
-def read_multiband_tiff(path):
+def read_multiband_tiff(path: Path) -> tuple[np.ndarray, int, dict]:
+    """ Read all the bands from the TIFF file.
+
+    Args:
+        path (pathlib.Path): Path to the TIFF file.
+
+    Returns:
+        Tuple[np.ndarray, int, dict]: A tuple containing:
+            - A NumPy array of shape (bands, rows, cols) with the band data.
+            - An integer representing the number of bands.
+            - A dictionary with the raster profile metadata.
+    """
     with rasterio.open(path, "r") as src:
         band_count = src.count
         data = src.read()  # shape: (bands, rows, cols)
@@ -18,7 +29,15 @@ def read_multiband_tiff(path):
     return data, band_count, profile
 
 
-def calculate_indices(bands):
+def calculate_indices(bands: np.ndarray) -> np.ndarray:
+    """ Calculate vegetation indices from the given bands.
+
+    Args:
+        bands (np.ndarray): A NumPy array of shape (bands, rows, cols) containing the band data.
+
+    Returns:
+        np.ndarray: A NumPy array of shape (num_indices, rows, cols) containing the calculated indices.
+    """
     results = []
 
     for index in Indices:
@@ -41,7 +60,15 @@ def get_index_names():
     return names
 
 
-def write_multiband_tiff(path, bands, profile, indices: List[Bands | Indices]):
+def write_multiband_tiff(path: Path, bands: np.ndarray, profile: dict, indices: List[Bands | Indices]):
+    """ Write multiple bands to a TIFF file with updated profile and band descriptions.
+
+    Args:
+        path (pathlib.Path): Path to the output TIFF file.
+        bands (np.ndarray): A NumPy array of shape (bands, rows, cols) containing the band data to write.
+        profile (dict): Profile metadata for the TIFF file.
+        indices: List[Bands | Indices]: List of band and index enums to set band descriptions.
+    """
     profile.update(
         count=bands.shape[0],
         dtype=bands.dtype,
@@ -134,22 +161,22 @@ if __name__ == "__main__":
 
     else:
         tiff_files = list(inp.glob("*.tif"))
-        for file in tqdm(tiff_files, desc="TIFF"):
-            input_tiff = inp / file.name
-            output_tiff = out / file.name
-            try:
-                main(input_tiff, output_tiff)
-            except Exception as e:
-                pass
-
-        # def process_file(file):
-        #     input_tiff = inp / file
-        #     output_tiff = out / file
+        # for file in tqdm(tiff_files, desc="TIFF"):
+        #     input_tiff = inp / file.name
+        #     output_tiff = out / file.name
         #     try:
         #         main(input_tiff, output_tiff)
         #     except Exception as e:
         #         pass
 
-        # with ThreadPoolExecutor(max_workers=workers) as executor:
-        #     list(tqdm(executor.map(process_file, tiff_files), total=len(tiff_files), desc="TIFF"))
+        def process_file(file):
+            input_tiff = inp / file
+            output_tiff = out / file
+            try:
+                main(input_tiff, output_tiff)
+            except Exception as e:
+                pass
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            list(tqdm(executor.map(process_file, tiff_files), total=len(tiff_files), desc="TIFF"))
 
