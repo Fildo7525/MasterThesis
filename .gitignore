@@ -36,3 +36,5 @@ OpenCV/images
 OpenCV/output
 OpenCV/*.png
 *.tif.aux.xml
+*.npy
+*.pkl

@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from pathlib import Path
 import pickle
-from typing import Sequence
+from typing import Sequence, List
 
 class FeatureDetectorType(IntEnum):
     SIFT = 0
@@ -81,7 +81,7 @@ class BagOfVisualWords:
         return keypoints, descriptors
 
 
-    def build_vocabulary(self, image_paths, sample_size=None):
+    def build_vocabulary(self, image_paths: List[Path], sample_size=None):
         """
         Build visual vocabulary by clustering descriptors and compute IDF weights
 
