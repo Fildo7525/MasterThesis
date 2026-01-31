@@ -19,18 +19,31 @@ class FeatureDetectorType(IntEnum):
         else:
             raise ValueError("Unsupported Feature Detector Type")
 
+
+
 class BagOfVisualWords:
-    def __init__(self, *, n_clusters=100, detector_type=FeatureDetectorType.SIFT):
+    def __init__(
+        self,
+        *,
+        n_clusters: int = 100,
+        detector_type: FeatureDetectorType = FeatureDetectorType.SIFT,
+        use_tfidf: bool = True
+    ):
         """
         Initialize BoVW model
 
         Args:
             n_clusters: Number of visual words in vocabulary
+            detector_type: Type of feature detector to use (SIFT or ORB)
+            use_tfidf: Whether to use TF-IDF weighting (default: True)
         """
-        self.n_clusters = n_clusters
-        self.kmeans = None
+        self.n_clusters: int = n_clusters
+        self.kmeans: MiniBatchKMeans | None = None
         self.vocabulary = None
         self.feature_detector: Feature2D = detector_type.getector()
+        self.use_tfidf: bool = use_tfidf
+        self.idf_weights = None  # Will store IDF weights for each visual word
+
 
     def extract_descriptors(
             self,
@@ -49,7 +62,7 @@ class BagOfVisualWords:
             should be detected need to be non-zero in the mask. [detect](https://docs.opencv.org/3.4/d0/d13/classcv_1_1Feature2D.html#aa4e9a7082ec61ebc108806704fbd7887)
 
         Returns:
-            Descriptors as a numpy array of shape (num_keypoints, descriptor_size)
+            Tuple of (keypoints, descriptors) where descriptors is a numpy array of shape (num_keypoints, descriptor_size)
 
         """
         if isinstance(image, Path):
@@ -70,7 +83,7 @@ class BagOfVisualWords:
 
     def build_vocabulary(self, image_paths, sample_size=None):
         """
-        Build visual vocabulary by clustering descriptors
+        Build visual vocabulary by clustering descriptors and compute IDF weights
 
         Args:
             image_paths: List of paths to training images
@@ -78,11 +91,14 @@ class BagOfVisualWords:
         """
         print("Extracting descriptors from images...")
         all_descriptors = []
+        image_descriptors = []
 
         for img_path in image_paths:
-            keypoints, descriptors = self.extract_descriptors(img_path)  # Unpack the tuple
-            if descriptors is not None and len(descriptors) > 0:  # Check descriptors, not keypoints
+            # Keypoints can be used to filter descriptors if needed by size or location
+            keypoints, descriptors = self.extract_descriptors(img_path)
+            if descriptors is not None and len(descriptors) > 0:
                 all_descriptors.append(descriptors)
+                image_descriptors.append(descriptors)
 
         if not all_descriptors:
             raise ValueError("No descriptors extracted from any images")
@@ -107,21 +123,59 @@ class BagOfVisualWords:
         self.vocabulary = self.kmeans.cluster_centers_
         print("Vocabulary created!")
 
+        # Calculate IDF weights if TF-IDF is enabled
+        if self.use_tfidf:
+            print("Calculating IDF weights...")
+            self._compute_idf_weights(image_descriptors)
+            print("IDF weights computed!")
 
-    def get_bovw_features(self, image_path):
+
+    def _compute_idf_weights(self, image_descriptors):
         """
-        Generate BoVW histogram for a single image
+        Compute IDF (Inverse Document Frequency) weights for visual words
+
+        IDF(word) = log(N / df(word))
+        where N is total number of images and df(word) is number of images containing that word
+
+        Args:
+            image_descriptors: List of descriptor arrays, one per image
+        """
+        n_images = len(image_descriptors)
+        word_document_count = np.zeros(self.n_clusters)  # Count how many images contain each word
+
+        if self.kmeans is None:
+            raise ValueError("KMeans model not trained. Cannot compute IDF weights.")
+
+        for descriptors in image_descriptors:
+            if descriptors is not None and len(descriptors) > 0:
+                # Assign descriptors to visual words
+                labels = self.kmeans.predict(descriptors)
+                # Get unique words present in this image
+                unique_words = np.unique(labels)
+                # Increment document count for these words
+                word_document_count[unique_words] += 1
+
+        # Calculate IDF: log(N / df)
+        # Add 1 to avoid division by zero for words that don't appear in any image
+        self.idf_weights = np.log(n_images / (word_document_count + 1))
+        # print(f"IDF weights log(N/n_i): {self.idf_weights}")
+
+
+    def get_bovw_features(self, image_path, normalize=True):
+        """
+        Generate BoVW histogram for a single image with optional TF-IDF weighting
 
         Args:
             image_path: Path to image
+            normalize: Whether to L2 normalize the final feature vector (default: True)
 
         Returns:
-            Histogram of visual words (feature vector)
+            Histogram of visual words (feature vector), optionally weighted by TF-IDF
         """
         if self.kmeans is None:
             raise ValueError("Vocabulary not built. Call build_vocabulary first.")
 
-        keypoints, descriptors = self.extract_descriptors(image_path)  # Unpack the tuple
+        keypoints, descriptors = self.extract_descriptors(image_path)
 
         if descriptors is None or len(descriptors) == 0:
             return np.zeros(self.n_clusters)
@@ -129,11 +183,28 @@ class BagOfVisualWords:
         # Assign each descriptor to nearest cluster (visual word)
         labels = self.kmeans.predict(descriptors)
 
-        # Create histogram
+        # Create histogram (term frequency)
         histogram, _ = np.histogram(labels, bins=np.arange(self.n_clusters + 1))
 
-        # Normalize
-        histogram = histogram / (histogram.sum() + 1e-6)
+        # Convert to float for TF-IDF calculation
+        histogram = histogram.astype(np.float64)
+
+        # Apply TF-IDF weighting if enabled
+        if self.use_tfidf:
+            if self.idf_weights is None:
+                raise ValueError("IDF weights not computed. This should have been done in build_vocabulary.")
+
+            # TF-IDF: TF(word) * IDF(word)
+            # TF is already the raw count (histogram)
+            # Optionally normalize TF by total number of descriptors in image
+            tf = histogram / (histogram.sum() + 1e-6)
+            histogram = tf * self.idf_weights
+
+        # L2 Normalize the final feature vector
+        if normalize:
+            norm = np.linalg.norm(histogram)
+            if norm > 0:
+                histogram = histogram / norm
 
         return histogram
 
@@ -141,9 +212,14 @@ class BagOfVisualWords:
     def save(self, filepath):
         """Save the model"""
         with open(filepath, 'wb') as f:
-            pickle.dump({'kmeans': self.kmeans,
-                        'vocabulary': self.vocabulary,
-                        'n_clusters': self.n_clusters}, f)
+            pickle.dump({
+                'kmeans': self.kmeans,
+                'vocabulary': self.vocabulary,
+                'n_clusters': self.n_clusters,
+                'use_tfidf': self.use_tfidf,
+                'idf_weights': self.idf_weights
+            }, f)
+
 
     def load(self, filepath):
         """Load the model"""
@@ -152,31 +228,25 @@ class BagOfVisualWords:
             self.kmeans = data['kmeans']
             self.vocabulary = data['vocabulary']
             self.n_clusters = data['n_clusters']
+            self.use_tfidf = data.get('use_tfidf', False)  # For backward compatibility
+            self.idf_weights = data.get('idf_weights', None)
+
 
 
 if __name__ == "__main__":
-
-    # 1. Collect your image paths
     home = Path.home()
     image_folder = home / Path("SDU/MasterThesis/Orthomosaics/pngs/")
-    image_paths = image_folder.glob("*.png")  # or *.jpg, *.jpeg
-    # Or use glob: image_paths = glob.glob("path/to/images/*.png")
+    image_paths = list(image_folder.glob("*.png"))  # Convert to list to avoid consuming generator
 
-    format_image_paths = [p for p in image_paths if p.is_file()]
-    image_paths = format_image_paths
+    # Filter to only actual files
+    image_paths = [p for p in image_paths if p.is_file()]
     print(f"Found {len(image_paths)} images", flush=True)
 
-    # 2. Create BoVW model
-    bovw = BagOfVisualWords(n_clusters=200)  # 200 visual words
-
-    # 3. Build vocabulary from training images
-    # Use all images or a subset for vocabulary building
+    # Create BoVW model with TF-IDF
+    bovw = BagOfVisualWords(n_clusters=200, use_tfidf=True)  # 200 visual words with TF-IDF
     bovw.build_vocabulary(image_paths[:100], sample_size=50000)
-
-    # 4. Save the vocabulary
     bovw.save("bovw_model.pkl")
 
-    # 5. Extract features for all images
     features_list = []
     for img_path in image_paths:
         features = bovw.get_bovw_features(img_path)
@@ -185,6 +255,5 @@ if __name__ == "__main__":
     features_array = np.array(features_list)
     print(f"Feature matrix shape: {features_array.shape}")  # (n_images, n_clusters)
 
-    # 6. Save features
     np.save("bovw_features.npy", features_array)
 
