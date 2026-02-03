@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from typing import Callable
 import os
 import sys
 import math
@@ -13,7 +14,7 @@ from create_indexes import Bands
 
 ORTHO_IMG_DIR = Path("../Orthomosaics/")
 
-def process_tile(src, i, j, tile_size, output_dir, overlap):
+def process_tile(src, i, j, tile_size, output_dir, overlap, process_window=lambda x, i, j: x):
     # Define pixel offsets
     x_off = j * tile_size - j * overlap
     y_off = i * tile_size - i * overlap
@@ -48,15 +49,22 @@ def process_tile(src, i, j, tile_size, output_dir, overlap):
     tile_name = f"tile_{i}_{j}.tif"
     out_path = os.path.join(output_dir, tile_name)
 
+    # User defined processing function
+    bands = process_window(src.read(window=window), i, j)
+
     # Read the window and write it out
     i = 0
     with rasterio.open(out_path, "w", **tile_profile) as dst:
-        dst.write(src.read(window=window))
+        dst.write(bands)
         dst.set_band_description(i+1, names[i])
         i += 1
 
 
-def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0):
+def split_geotiff(input_tif: Path,
+                  output_dir: Path,
+                  tile_size: int,
+                  overlap: int = 0,
+                  process_window: Callable[[np.ndarray, int, int], np.ndarray] = lambda x, i, j: x):
     """
     Splits a multispectral GeoTIFF into square tiles with optional overlap.
 
@@ -97,7 +105,7 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
         with tqdm(total=total_tiles, desc=f"Processing {input_tif.name}", unit="tile") as pbar:
             for i in range(n_rows):
                 for j in range(n_cols):
-                    process_tile(src, i, j, tile_size, output_dir, overlap)
+                    process_tile(src, i, j, tile_size, output_dir, overlap, process_window)
                     pbar.update(1)
 
     print("✅ Done splitting GeoTIFF!")

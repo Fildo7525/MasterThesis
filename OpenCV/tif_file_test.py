@@ -88,16 +88,27 @@ def write_multiband_tiff(path: Path, bands: np.ndarray, profile: dict, indices: 
             dst.set_band_description(i+1, names[i])
 
 
-def reference_band_indices(bands: List[Bands | Indices]) -> List[int]:
-    return [b - 1 if isinstance(b, Bands) else 7 + b.value - 1 for b in bands]
+def reference_band_indices(bands: List[Bands | Indices | int]) -> List[int]:
+    values = []
+    for b in bands:
+        if isinstance(b, Bands):
+            values.append(b.value - 1)
+        elif isinstance(b, Indices):
+            values.append(7 + b.value - 1)
+        elif isinstance(b, int):
+            values.append(b)
+        else:
+            raise ValueError(f"Invalid band/index type: {type(b)}")
+
+    return values
 
 
 def export2png(filename: Path,
                all_bands: np.ndarray,
-               bands: List[Bands | Indices]) -> np.ndarray:
+               bands: List[Bands | Indices | int] | None = None) -> np.ndarray:
 
     out_mat = []
-    out_bands = reference_band_indices(bands)
+    out_bands = reference_band_indices(bands) if bands is not None else list(range(all_bands.shape[0]))
 
     for b in out_bands:
         band = all_bands[b, :, :].astype(np.uint16)
@@ -119,6 +130,9 @@ def export2png(filename: Path,
 
     if not filename.parent.exists():
         filename.parent.mkdir(parents=True, exist_ok=True)
+
+    if filename.suffix.lower() != ".png":
+        filename = filename.with_suffix(".png")
 
     cv2.imwrite(str(filename), img)
     if DBG:
