@@ -97,7 +97,11 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
     out_dir = THRESHOLDED_CUTOUTS_DIR / f"t_{row}_{column}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    out_path = out_dir / f"cutout_example_{row}_{column}.png"
+    out_dir2 = THRESHOLDED_CUTOUTS_DIR / f"tiles"
+    out_dir2.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_dir / f"tile_{row}_{column}.png"
+    out_path2 = out_dir2 / f"tile_{row}_{column}.png"
 
     # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
     thresholded = to_cv_uint8(bands.copy(), [0])
@@ -109,10 +113,11 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
 
     img: np.ndarray = get_tile_png(row, column)
     # print(f"Got tile png at {row}, {column}, shape: {img.shape}, type: {img.dtype}")
-    objects = extract_segmented_objects(img, thresholded, min_area=50)
+    objects = extract_segmented_objects(img, thresholded, min_area=100)
     if objects == []:
         print(f"No objects extracted from tile r:{row} c:{column}.")
         cv.imwrite(str(out_path), thresholded.astype(np.uint8))
+        cv.imwrite(str(out_path2), thresholded.astype(np.uint8))
         return bands
 
     i = 0
