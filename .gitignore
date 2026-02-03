@@ -38,3 +38,4 @@ OpenCV/*.png
 *.tif.aux.xml
 *.npy
 *.pkl
+OpenCV/thresholded_cutouts
