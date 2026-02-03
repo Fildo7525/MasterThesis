@@ -38,13 +38,14 @@ def to_cv_uint8(all_bands: np.ndarray,
     return img
 
 
-def extract_segmented_objects(image: MatLike, mask: MatLike) -> List[np.ndarray]:
+def extract_segmented_objects(image: MatLike, mask: MatLike, min_area: int = 10) -> List[np.ndarray]:
     """
     Extract segmented objects from an image using a binary mask.
 
     Args:
         image (MatLike): HxW or HxWxC numpy array
         mask (MatLike):  HxW binary mask (0 or 255)
+        min_area (int): Minimum area (in pixels) for an object to be considered
 
     Return:
         List[np.ndarray]: list of numpy arrays, one per segmented object
@@ -56,11 +57,19 @@ def extract_segmented_objects(image: MatLike, mask: MatLike) -> List[np.ndarray]
     # https://docs.opencv.org/3.4/d3/dc0/group__imgproc__shape.html#gaedef8c7340499ca391d459122e51bef5
     num_labels, labels = cv.connectedComponents(mask_bin)
 
+    print(f"Image size: {image.shape}, Mask size: {mask.shape}, Found {num_labels - 1} objects.")
+    if image.shape[:2] != mask.shape[:2]:
+        return []
+
     objects = []
 
     for label in range(1, num_labels):  # 0 is background
         # Create mask for this object
         obj_mask = (labels == label).astype(np.uint8)
+
+        area = cv.countNonZero(obj_mask)
+        if area < min_area:
+            continue
 
         if image.ndim == 2:
             obj = image * obj_mask
@@ -85,8 +94,10 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
     # Example processing: just return the bands as is
     # print(f"Processing window [{row}, {column}] with shape: {bands.shape}, type: {bands.dtype}")
 
-    THRESHOLDED_CUTOUTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = THRESHOLDED_CUTOUTS_DIR / f"cutout_example_{row}_{column}.png"
+    out_dir = THRESHOLDED_CUTOUTS_DIR / f"t_{row}_{column}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    out_path = out_dir / f"cutout_example_{row}_{column}.png"
 
     # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
     thresholded = to_cv_uint8(bands.copy(), [0])
@@ -98,25 +109,31 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
 
     img: np.ndarray = get_tile_png(row, column)
     # print(f"Got tile png at {row}, {column}, shape: {img.shape}, type: {img.dtype}")
-    objects = extract_segmented_objects(img, thresholded)
+    objects = extract_segmented_objects(img, thresholded, min_area=50)
+    if objects == []:
+        print(f"No objects extracted from tile r:{row} c:{column}.")
+        cv.imwrite(str(out_path), thresholded.astype(np.uint8))
+        return bands
 
     i = 0
     for obj in objects:
-        cv.imshow(f"Object in tile {row}_{column}_{i}", obj)
-        print(f"Object shape: {obj.shape}, dtype: {obj.dtype}")
+        # cv.imshow(f"Object in tile {row}_{column}_{i}", obj)
+        obj_path = out_dir / f"object_{row}_{column}_{i:04}.png"
+        cv.imwrite(str(obj_path), obj)
+        # print(f"Object shape: {obj.shape}, dtype: {obj.dtype}")
         i += 1
 
         # cv.waitKey(0)
         # cv.destroyAllWindows()
 
-    print(f"Extracted {len(objects)} objects from tile {row}_{column}.")
+    print(f"Extracted {len(objects)} objects from tile r:{row} c:{column}.")
 
-    cv.imshow(f"Thresholded {row}_{column}", thresholded)
-    key = cv.waitKey(0)
-    cv.destroyAllWindows()
+    # cv.imshow(f"Thresholded {row}_{column}", thresholded)
+    # key = cv.waitKey(0)
+    # cv.destroyAllWindows()
 
-    if key == ord('q'):
-        quit()
+    # if key == ord('q'):
+    #     quit()
 
     cv.imwrite(str(out_path), thresholded.astype(np.uint8))
 
