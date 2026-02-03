@@ -563,13 +563,13 @@ class YOLOShapefileConverter:
         processed_count = 0
         for index, label_file in enumerate(label_files):
 
-            print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
-
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
             if not tif_file.exists():
+                print(f"Warning: Corresponding TIF file not found for {label_file}, skipping.")
                 continue
 
+            print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
             try:
                 self.label_to_shapefile(
                     yolo_label_path=label_file,
@@ -649,7 +649,8 @@ class YOLOShapefileConverter:
 if __name__ == "__main__":
     converter = YOLOShapefileConverter()
 
-    labels_dir = "/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_mid.v1i.yolov12/train/labels"
+    home = Path.home()
+    labels_dir = home / "Downloads/Bjornkjaervej_TestFlight_2_small.v4-potatoes-no_augment_removed_maybe.yolov12/train/labels"
 
     for label_file in os.listdir(labels_dir):
         if label_file.endswith('.txt'):
@@ -660,8 +661,8 @@ if __name__ == "__main__":
     # Example: Convert cutout YOLO labels to shapefile with merging
     converter.labels_to_shapefile(
         labels_dir=labels_dir,
-        reference_tif_dir="/home/samuel/SDU/20250827_Bjørnkjærvej_TestFlight_2_mid_processed_images/processed_output/image_tiles",
-        output_shapefile="/home/samuel/MasterThesis/OpenCV/MID/BV_F2_small.shp",
+        reference_tif_dir=home / "SDU/MasterThesis/Orthomosaics/example_tiles",
+        output_shapefile=home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp",
         merge_intersecting=True,  # Enable merging of intersecting boxes
         overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
     )
