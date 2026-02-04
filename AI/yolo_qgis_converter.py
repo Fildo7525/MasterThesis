@@ -17,6 +17,7 @@ import os
 import pandas as pd
 import rasterio
 import numpy as np
+from tqdm import tqdm
 
 class YoloDatasetModel(IntEnum):
     OBB = 0
@@ -561,7 +562,7 @@ class YOLOShapefileConverter:
             return None
 
         processed_count = 0
-        for index, label_file in enumerate(label_files):
+        for index, label_file in tqdm(enumerate(label_files), total=len(label_files), desc="Processing label files"):
 
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
@@ -569,7 +570,7 @@ class YOLOShapefileConverter:
                 print(f"Warning: Corresponding TIF file not found for {label_file}, skipping.")
                 continue
 
-            print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
+            # print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
             try:
                 self.label_to_shapefile(
                     yolo_label_path=label_file,
