@@ -7,16 +7,14 @@ Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
 """
 
+from shapely.geometry.base import BaseGeometry
 from enum import IntEnum
 from pathlib import Path
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 from typing import List, Optional
 import geopandas as gpd
-import os
-import pandas as pd
 import rasterio
-import numpy as np
 from tqdm import tqdm
 
 class YoloDatasetModel(IntEnum):
@@ -43,7 +41,7 @@ class YoloConfidenceMerging(IntEnum):
 class YOLOShapefileConverter:
     """Convert between YOLOv5 annotations and georeferenced shapefiles"""
 
-    def _calculate_overlap_ratio(self, poly1: Polygon, poly2: Polygon) -> float:
+    def _calculate_overlap_ratio(self, poly1: Polygon|BaseGeometry, poly2: Polygon|BaseGeometry) -> float:
         """
         Calculate the overlap ratio between two polygons.
         The ratio is the intersection area divided by the area of the smaller polygon.
@@ -386,9 +384,9 @@ class YOLOShapefileConverter:
 
 
     def shapefile_to_yolo(self,
-                         shapefile_path: str,
-                         reference_tif_file: str,
-                         output_yolo_label: str,
+                         shapefile_path: Path | str,
+                         reference_tif_file: Path | str,
+                         output_yolo_label: Path | str,
                          *,
                          database_model: YoloDatasetModel,
                         ):
@@ -463,7 +461,7 @@ class YOLOShapefileConverter:
                 x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
                 # Get class ID
-                class_id = int(row.get('class_id', 0))
+                class_id = 0 #int(row.get('class_id', 0))
 
                 arr = []
 
@@ -562,7 +560,7 @@ class YOLOShapefileConverter:
             return None
 
         processed_count = 0
-        for index, label_file in tqdm(enumerate(label_files), total=len(label_files), desc="Processing label files"):
+        for _, label_file in tqdm(enumerate(label_files), total=len(label_files), desc="Processing label files"):
 
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
@@ -592,13 +590,12 @@ class YOLOShapefileConverter:
 
 
     def shapefile_to_yolo_cutouts(self,
-                                   shapefile_path: str,
-                                   cutouts_dir: str,
-                                   output_labels_dir: str,
-                                   tif_extension: str = '.tif',
-                                   *,
-                                   database_model: YoloDatasetModel,
-                                  ):
+        shapefile_path: Path | str,
+        cutouts_dir: Path | str,
+        output_labels_dir: Path | str,
+        tif_extension: Path | str = '.tif',
+        *,
+        database_model: YoloDatasetModel):
         """
         Convert shapefile to YOLO labels for multiple cutout TIF files
 
@@ -651,19 +648,30 @@ if __name__ == "__main__":
     converter = YOLOShapefileConverter()
 
     home = Path.home()
-    labels_dir = home / "Downloads/Bjornkjaervej_TestFlight_2_small.v4-potatoes-no_augment_removed_maybe.yolov12/train/labels"
+    # labels_dir = home / "Downloads/Bjornkjaervej_TestFlight_2_small.v4-potatoes-no_augment_removed_maybe.yolov12/train/labels"
 
-    for label_file in os.listdir(labels_dir):
-        if label_file.endswith('.txt'):
-            index = label_file.find("_NEN")
-            new_file_name = label_file[:index] + ".txt"
-            os.rename(os.path.join(labels_dir, label_file), os.path.join(labels_dir, new_file_name))
+    # for label_file in os.listdir(labels_dir):
+    #     if label_file.endswith('.txt'):
+    #         index = label_file.find("_NEN")
+    #         new_file_name = label_file[:index] + ".txt"
+    #         os.rename(os.path.join(labels_dir, label_file), os.path.join(labels_dir, new_file_name))
 
-    # Example: Convert cutout YOLO labels to shapefile with merging
-    converter.labels_to_shapefile(
-        labels_dir=labels_dir,
-        reference_tif_dir=home / "SDU/MasterThesis/Orthomosaics/example_tiles",
-        output_shapefile=home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp",
-        merge_intersecting=True,  # Enable merging of intersecting boxes
-        overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
+    # # Example: Convert cutout YOLO labels to shapefile with merging
+    # converter.labels_to_shapefile(
+    #     labels_dir=labels_dir,
+    #     reference_tif_dir=home / "SDU/MasterThesis/Orthomosaics/example_tiles",
+    #     output_shapefile=home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp",
+    #     merge_intersecting=True,  # Enable merging of intersecting boxes
+    #     overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
+    # )
+
+    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
+    cutouts_dir = home / 'SDU/MasterThesis/OpenCV/shapefiles/ground_truth'
+    reference_tif_dir = home / "SDU/MasterThesis/Orthomosaics/example_tiles"
+
+    converter.shapefile_to_yolo_cutouts(
+        shapefile_path = shapefile_path,
+        cutouts_dir = reference_tif_dir,
+        output_labels_dir = cutouts_dir,
+        database_model=YoloDatasetModel.OBB
     )
