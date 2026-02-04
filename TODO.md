@@ -71,6 +71,17 @@ I was at work
 - [ ] Test the pretrained MiniBatchKMeans model on different fields
 
 ## 04.02.2026
+
+- Meeting
+Take a screenshot of all the important images. Start the making the QGIS plugin.
+Take out the cutouts and from the shapefile and validate that. Validate segmentation and bboxes.
+
+for writing
+- Methodology (a - Opencv, b - AI)
+
+4) Methodology & Implementation
+5) Results maybe Results and Discussion
+
 ## 05.02.2026
 ## 06.02.2026
 ## 07.02.2026
