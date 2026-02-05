@@ -372,7 +372,7 @@ class ImageProcessor:
         cv.imwrite(str(applied_dir / f"{name}_nen.tif"), applied_mask)
         return mask
     
-    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", percentiles = []):
+    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", percentiles = [], do_zeros = [False, False, False]):
         if None in [input_paths.band1, input_paths.band2, input_paths.band3]:
             raise ValueError("Three input paths required for NEN image creation.")
 
@@ -385,15 +385,22 @@ class ImageProcessor:
             band2 = src2.read(1)
             band3 = src3.read(1)
 
-        band1 = self.normalize_tile(band1)
-        band2 = self.normalize_tile(band2)
-        band3 = self.normalize_tile(band3)
+        if do_zeros[0]:
+            band1 = np.zeros_like(band1)
+
+        if do_zeros[1]:
+            band2 = np.zeros_like(band2)
+            
+        if do_zeros[2]:
+            band3 = np.zeros_like(band3)
+
 
         img = np.dstack((band1, band2, band3)).astype(np.uint8)
 
         index = str(Path(input_paths.band1).stem).rfind("_")
         output_name = str(Path(input_paths.band1).stem)[:index]
-        path = str(output_path / f"{output_name}_{ending}.tif")
+        path = str(output_path / f"{output_name}_{ending}.png")
+        img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
         cv.imwrite(path, img)
 
 
@@ -487,6 +494,8 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
+            if "xml" in img_name:
+                continue
             proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
 
         apply_masks(proc, "NIR_MASKS")
@@ -503,6 +512,8 @@ def process_images():
         proc.set_mask_path(MASK_DIR / "RVI_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
+            if "xml" in img_name:
+                continue
             proc.calculate_mask_from_band(False, False, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
 
         apply_masks(proc, "RVI_MASKS")
@@ -521,6 +532,8 @@ def process_images():
         os.makedirs(proc.mask_path, exist_ok=True)
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
+            if "xml" in img_name:
+                continue
             proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
 
         apply_masks(proc, "NGRDI_MASKS")
@@ -566,6 +579,8 @@ def process_images():
             )
 
         for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
+            if "xml" in img_name:
+                continue
             proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
 
     else:
