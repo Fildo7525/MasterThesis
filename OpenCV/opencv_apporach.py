@@ -54,7 +54,7 @@ def extract_segmented_objects(image: MatLike,
                               row: int,
                               column: int,
                               min_area: int = MIN_AREA_PX,
-                              max_area: int = MIN_AREA_PX) -> tuple[List[np.ndarray], List[tuple[int, int, int, int]]]:
+                              max_area: int = MAX_AREA_PX) -> tuple[List[np.ndarray], List[tuple[int, int, int, int]]]:
     """
     Extract segmented objects from an image using a binary mask.
     The limits were chosen based on the calculated areas in qgis from the ground truth shapefiles.
