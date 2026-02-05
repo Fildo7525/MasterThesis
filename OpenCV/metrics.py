@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -87,6 +89,7 @@ class ConfusionMatrix:
 
         if not hold:
             plt.show()
+            plt.close()
 
 
 
