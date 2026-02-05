@@ -16,7 +16,7 @@ LABEL_DATASET_PATHS = [
 
 
 NEW_DATA_PATH = Path(
-    "/home/samuel/SDU/MasterThesis/Orthomosaics/band_combinations/float_combinations/full_datasets/RED_REDEDGE_NIR"
+    "/home/samuel/test/MasterThesis/Orthomosaics/band_combinations/float_combinations/full_datasets/RED_GREEN_NIR"
 )
 
 def normalize(stem: str) -> str:

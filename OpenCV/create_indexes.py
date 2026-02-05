@@ -1,4 +1,3 @@
-import cv2
 import rasterio
 import numpy as np
 from enum import IntEnum
@@ -160,8 +159,9 @@ def calculate_all_indices(input_path, output_path, indices):
             bands = [src.read(i).astype(np.float32) for i in range(1, src.count + 1)]
             img_index = compute_index(index.name, bands)
 
-            out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.tif"
-            cv2.imwrite(str(out_path), img_index.astype(np.float32))    
+            out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.png"
+            with rasterio.open(out_path, "w", **meta) as dst:
+                dst.write(img_index.astype(np.float32), 1)
 
 
 def calculate_index(input_path, output_path, index: Indices):
@@ -185,7 +185,7 @@ def calculate_index(input_path, output_path, index: Indices):
         bands = [src.read(i).astype(np.float32) for i in range(1, src.count + 1)]
         img_index = compute_index(index.name, bands)
 
-        out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.tif"
+        out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.png"
         with rasterio.open(out_path, "w", **meta) as dst:
             dst.write(img_index.astype(np.float32), 1)
 
@@ -193,7 +193,7 @@ def calculate_index(input_path, output_path, index: Indices):
 
 if __name__ == "__main__":
     DIR_PATH = Path("/home/samuel/Documents/code/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small_tiles").expanduser()
-    input_tif = DIR_PATH / "tile_1_1.tif"
+    input_tif = DIR_PATH / "tile_1_1.png"
     output_dir = DIR_PATH / "indices_output"
 
     calculate_all_indices(input_tif, output_dir, Indices)
