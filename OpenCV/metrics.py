@@ -1,492 +1,304 @@
-#!/usr/bin/env python3
 """
-Calculate mIoU and Confusion Matrix from YOLO labels using torchmetrics
+YOLOv12 Confusion Matrix Calculator
+====================================
+
+This script computes a confusion matrix from YOLOv12 annotation files.
+
+YOLO Annotation Format:
+    Each line: class_id x_center y_center width height
+    All coordinates are normalized (0-1)
 
 Usage:
-    python run_metrics_with_confusion.py --gt_dir ground_truth --pred_dir predictions --num_classes 3
+    python yolo_confusion_matrix.py
+
+Then modify the paths in the main section:
+    ground_truth_dir = "path/to/ground_truth"
+    predictions_dir = "path/to/predictions"
+
+Confusion Matrix Components:
+    - TP (True Positive): Predicted box matches ground truth box (IoU >= threshold)
+    - FP (False Positive): Predicted box with no matching ground truth
+    - FN (False Negative): Ground truth box with no matching prediction
+    - TN (True Negative): Images with no objects in both GT and predictions
 """
 
-import torch
-import numpy as np
-import argparse
+from dataclasses import dataclass
 from pathlib import Path
-from PIL import Image, ImageDraw
 from typing import List
-import json
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import sys
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from AI.yolo_qgis_converter import YOLOShapefileConverter, YoloDatasetModel
 
 
-class YOLOToMask:
-    """Convert YOLO labels to segmentation masks"""
+@dataclass
+class ConfusionMatrix:
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
 
-    def __init__(self, img_width=640, img_height=640):
-        self.img_width = img_width
-        self.img_height = img_height
+    def print(self):
+        print("\n" + "="*50)
+        print("CONFUSION MATRIX (Object Detection)")
+        print("="*50)
+        print("\n                            Actual")
+        print("                         Positive  Negative")
+        print(f"Predicted   Positive    {self.tp:6d}    {self.fp:6d}")
+        print(f"            Negative    {self.fn:6d}    {self.tn:6d}")
+        print("\n" + "="*50)
 
-    def parse_line(self, line: str):
-        """Parse YOLO label line"""
-        parts = line.strip().split()
-        if not parts:
-            return None
+        precision = self.tp / (self.tp + self.fp) if (self.tp + self.fp) > 0 else 0
+        recall = self.tp / (self.tp + self.fn) if (self.tp + self.fn) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        accuracy = (self.tp + self.tn) / (self.tp + self.tn + self.fp + self.fn) if (self.tp + self.tn + self.fp + self.fn) > 0 else 0
 
-        class_id = int(parts[0])
-        coords = [float(x) for x in parts[1:]]
+        print(f"\nMetrics:")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall:    {recall:.4f}")
+        print(f"  F1-Score:  {f1:.4f}")
+        print(f"  Accuracy:  {accuracy:.4f}")
+        print("="*50 + "\n")
 
-        if len(coords) == 4:
-            return {'class': class_id, 'bbox': coords}
-        else:
-            return {'class': class_id, 'polygon': coords}
 
-    def bbox_to_polygon(self, bbox):
-        """Convert bbox to polygon"""
-        x_c, y_c, w, h = bbox
-        x_c *= self.img_width
-        y_c *= self.img_height
-        w *= self.img_width
-        h *= self.img_height
+    def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = False):
 
-        x1, y1 = x_c - w/2, y_c - h/2
-        x2, y2 = x_c + w/2, y_c + h/2
-        return [x1, y1, x2, y1, x2, y2, x1, y2]
+        matrix = np.array([[self.tp, self.fp],
+                           [self.fn, self.tn]])
+        if normalised:
+            matrix = matrix.astype(np.float32)
+            matrix_sum = matrix.sum()
+            if matrix_sum > 0:
+                matrix /= matrix_sum
 
-    def create_mask(self, label_file: str) -> np.ndarray:
-        """Create segmentation mask from YOLO label file"""
-        mask = np.zeros((self.img_height, self.img_width), dtype=np.int64)
+        fmt = '.2g' if normalised else 'g'
+        plt.figure(figsize=(6, 4))
+        sns.heatmap(matrix, annot=True, fmt=fmt, cmap='Blues', xticklabels=['Positive', 'Negative'], yticklabels=['Positive', 'Negative'])
+        plt.xlabel('Ground Truth')
+        plt.ylabel('Predictions')
+        plt.title(f"Confusion Matrix {'(Normalised)' if normalised else ''}")
 
-        if not Path(label_file).exists():
-            return mask
+        if save != "":
+            plt.savefig(f"confusion_matrix{'_normalised' if normalised else ''}.png")
 
-        with open(label_file, 'r') as f:
+        if not hold:
+            plt.show()
+
+
+
+class Metrics:
+    def __parse_yolo_annotation(self, file_path):
+        """Parse YOLOv12 annotation file and return list of bounding boxes."""
+        boxes = []
+        if not file_path or not Path(file_path).exists():
+            return boxes
+
+        with open(file_path, 'r') as f:
             for line in f:
-                obj = self.parse_line(line)
-                if not obj:
+                line = line.strip()
+                if not line:
                     continue
-
-                # Get polygon coordinates
-                if 'bbox' in obj:
-                    coords = self.bbox_to_polygon(obj['bbox'])
-                else:
-                    coords = []
-                    polygon = obj['polygon']
-                    for i in range(0, len(polygon), 2):
-                        coords.extend([
-                            polygon[i] * self.img_width,
-                            polygon[i+1] * self.img_height
-                        ])
-
-                # Draw on mask
-                img = Image.new('L', (self.img_width, self.img_height), 0)
-                ImageDraw.Draw(img).polygon(coords, outline=1, fill=1)
-                obj_mask = np.array(img)
-
-                # Update mask - use YOLO class ID directly (0-indexed)
-                mask[obj_mask > 0] = obj['class']
-
-        return mask
-
-    def batch_to_tensor(self, label_files: List[str]) -> torch.Tensor:
-        """Convert batch of YOLO files to tensor"""
-        masks = [self.create_mask(f) for f in label_files]
-        return torch.from_numpy(np.stack(masks)).long()
+                parts = line.split()
+                if len(parts) >= 5:
+                    x_center, y_center, width, height = map(float, parts[1:5])
+                    boxes.append((x_center, y_center, width, height))
+        return boxes
 
 
-def print_confusion_matrix(conf_matrix, class_names=None):
-    """
-    Print confusion matrix in a readable format
+    def __calculate_iou(self, box1, box2):
+        """Calculate IoU between two boxes in YOLO format."""
+        x1, y1, w1, h1 = box1
+        x2, y2, w2, h2 = box2
 
-    Args:
-        conf_matrix: Confusion matrix tensor (num_classes, num_classes)
-        class_names: List of class names (optional)
-    """
-    num_classes = conf_matrix.shape[0]
+        # Convert to corner coordinates
+        box1_x1, box1_y1 = x1 - w1/2, y1 - h1/2
+        box1_x2, box1_y2 = x1 + w1/2, y1 + h1/2
+        box2_x1, box2_y1 = x2 - w2/2, y2 - h2/2
+        box2_x2, box2_y2 = x2 + w2/2, y2 + h2/2
 
-    if class_names is None:
-        class_names = [f"Class_{i}" for i in range(num_classes)]
+        # Calculate intersection
+        inter_x1 = max(box1_x1, box2_x1)
+        inter_y1 = max(box1_y1, box2_y1)
+        inter_x2 = min(box1_x2, box2_x2)
+        inter_y2 = min(box1_y2, box2_y2)
 
-    # Print header
-    print("\n" + "="*80)
-    print("CONFUSION MATRIX")
-    print("="*80)
-    print("\nRows: Ground Truth (Actual)")
-    print("Columns: Predictions")
-    print("\nHow to read: Cell [i,j] = number of pixels from class i predicted as class j")
-    print("-"*80)
+        if inter_x2 < inter_x1 or inter_y2 < inter_y1:
+            return 0.0
 
-    # Column headers
-    max_name_len = max(len(name) for name in class_names)
-    col_width = max(10, max_name_len + 2)
+        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+        box1_area = w1 * h1
+        box2_area = w2 * h2
+        union_area = box1_area + box2_area - inter_area
 
-    header = " " * (max_name_len + 2) + "|"
-    for name in class_names:
-        header += f" {name:>{col_width-1}}"
-    print(header)
-    print("-" * len(header))
+        iou = inter_area / union_area if union_area > 0 else 0.0
+        # print(f"Iou = overlap / union => {iou:.4f} = {inter_area:.4f} / {union_area:.4f}")
 
-    # Print rows
-    for i, row_name in enumerate(class_names):
-        row = f"{row_name:>{max_name_len}} |"
-        for j in range(num_classes):
-            value = int(conf_matrix[i, j].item())
-            row += f" {value:>{col_width-1}}"
-        print(row)
-
-    print("="*80)
+        return iou
 
 
-def calculate_metrics_from_confusion_matrix(conf_matrix, class_names=None):
-    """
-    Calculate precision, recall, F1, and accuracy from confusion matrix
+    def __match_boxes(self, ground_truth_boxes, predicted_boxes, iou_threshold=0.5):
+        """
+        Match predicted boxes to ground truth using IoU threshold.
+        """
+        gt_matched = [False] * len(ground_truth_boxes)
+        pred_matched = [False] * len(predicted_boxes)
 
-    Args:
-        conf_matrix: Confusion matrix (num_classes, num_classes)
-        class_names: List of class names
+        for pred_idx, pred_box in enumerate(predicted_boxes):
+            best_iou = 0
+            best_gt_idx = -1
 
-    Returns:
-        Dictionary with per-class and overall metrics
-    """
-    num_classes = conf_matrix.shape[0]
+            for gt_idx, gt_box in enumerate(ground_truth_boxes):
+                # if gt_matched[gt_idx]:
+                #     continue
+                iou = self.__calculate_iou(pred_box, gt_box)
 
-    if class_names is None:
-        class_names = [f"Class_{i}" for i in range(num_classes)]
+                if iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
 
-    metrics = {}
+            # print(f"Predicted box {pred_idx}: Best IoU = {best_iou:.4f} with GT box {best_gt_idx}")
+            if best_iou >= iou_threshold and best_gt_idx >= 0:
+                pred_matched[pred_idx] = True
+                gt_matched[best_gt_idx] = True
 
-    # Per-class metrics
-    for i in range(num_classes):
-        tp = conf_matrix[i, i].item()
-        fp = conf_matrix[:, i].sum().item() - tp
-        fn = conf_matrix[i, :].sum().item() - tp
-        tn = conf_matrix.sum().item() - tp - fp - fn
+        tp = sum(pred_matched)
+        fp = len(predicted_boxes) - tp
+        fn = len(ground_truth_boxes) - sum(gt_matched)
 
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-
-        metrics[class_names[i]] = {
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1,
-            'tp': int(tp),
-            'fp': int(fp),
-            'fn': int(fn),
-            'support': int(tp + fn)  # Total actual instances
-        }
-
-    # Overall metrics
-    total_correct = torch.diag(conf_matrix).sum().item()
-    total_pixels = conf_matrix.sum().item()
-    accuracy = total_correct / total_pixels if total_pixels > 0 else 0.0
-
-    # Macro-averaged metrics
-    precisions = [m['precision'] for m in metrics.values() if m['support'] > 0]
-    recalls = [m['recall'] for m in metrics.values() if m['support'] > 0]
-    f1_scores = [m['f1_score'] for m in metrics.values() if m['support'] > 0]
-
-    metrics['overall'] = {
-        'pixel_accuracy': accuracy,
-        'macro_precision': np.mean(precisions) if precisions else 0.0,
-        'macro_recall': np.mean(recalls) if recalls else 0.0,
-        'macro_f1': np.mean(f1_scores) if f1_scores else 0.0,
-        'total_pixels': int(total_pixels)
-    }
-
-    return metrics
+        return tp, fp, fn
 
 
-def print_detailed_metrics(metrics):
-    """Print detailed metrics in a formatted table"""
-    print("\n" + "="*80)
-    print("PER-CLASS METRICS")
-    print("="*80)
+    def compute_confusion_matrix(self, gt_dir, pred_dir, iou_threshold=0.5):
+        """Compute confusion matrix from YOLO annotation directories."""
+        gt_path = Path(gt_dir)
+        pred_path = Path(pred_dir)
 
-    # Header
-    print(f"\n{'Class':<15} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'Support':<10}")
-    print("-"*80)
+        total = ConfusionMatrix()
 
-    # Per-class rows
-    for class_name, m in metrics.items():
-        if class_name == 'overall':
-            continue
-        print(f"{class_name:<15} {m['precision']:<12.4f} {m['recall']:<12.4f} "
-              f"{m['f1_score']:<12.4f} {m['support']:<10}")
+        gt_files = {f.stem: f for f in gt_path.glob('*.txt')}
+        pred_files = {f.stem: f for f in pred_path.glob('*.txt')}
+        all_images = set(gt_files.keys()).union(set(pred_files.keys()))
 
-    # Overall metrics
-    print("-"*80)
-    overall = metrics['overall']
-    print(f"\n{'Metric':<30} {'Value':<15}")
-    print("-"*80)
-    print(f"{'Pixel Accuracy':<30} {overall['pixel_accuracy']:<15.4f}")
-    print(f"{'Macro Precision':<30} {overall['macro_precision']:<15.4f}")
-    print(f"{'Macro Recall':<30} {overall['macro_recall']:<15.4f}")
-    print(f"{'Macro F1-Score':<30} {overall['macro_f1']:<15.4f}")
-    print(f"{'Total Pixels Evaluated':<30} {overall['total_pixels']:<15}")
-    print("="*80)
+        for image_name in sorted(all_images):
+            gt_boxes = self.__parse_yolo_annotation(gt_files.get(image_name))
+            pred_boxes = self.__parse_yolo_annotation(pred_files.get(image_name))
 
-
-def calculate_all_metrics(
-    gt_dir: str,
-    pred_dir: str,
-    num_classes: int,
-    class_names: List[str] = None,
-    img_width: int = 640,
-    img_height: int = 640,
-    batch_size: int = 8,
-    include_background: bool = True,
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
-    save_output: str = None
-):
-    """
-    Calculate mIoU, confusion matrix, and detailed metrics
-
-    Args:
-        gt_dir: Ground truth labels directory
-        pred_dir: Prediction labels directory
-        num_classes: Number of classes
-        class_names: List of class names (optional)
-        img_width: Image width
-        img_height: Image height
-        batch_size: Batch size for processing
-        include_background: Include background in mIoU calculation
-        device: Device to use ('cuda' or 'cpu')
-        save_output: Path to save results JSON (optional)
-    """
-    try:
-        from torchmetrics.segmentation import MeanIoU
-        from torchmetrics.classification import MulticlassConfusionMatrix
-    except ImportError:
-        print("ERROR: torchmetrics not installed!")
-        print("Install with: pip install torchmetrics")
-        return
-
-    if class_names is None:
-        class_names = [f"Class_{i}" for i in range(num_classes)]
-
-    print(f"Using device: {device}")
-    print(f"Processing {gt_dir} vs {pred_dir}")
-    print(f"Classes: {num_classes}, Image size: {img_width}x{img_height}")
-    print("-" * 80)
-
-    # Initialize metrics
-    converter = YOLOToMask(img_width, img_height)
-
-    miou_metric = MeanIoU(
-        num_classes=num_classes,
-        include_background=include_background,
-        per_class=True,
-        input_format='index'
-    ).to(device)
-
-    confusion_metric = MulticlassConfusionMatrix(
-        num_classes=num_classes
-    ).to(device)
-
-    # Get files
-    gt_path = Path(gt_dir)
-    pred_path = Path(pred_dir)
-    gt_files = sorted(gt_path.glob('*.txt'))
-
-    if not gt_files:
-        print(f"ERROR: No .txt files found in {gt_dir}")
-        return
-
-    print(f"Found {len(gt_files)} ground truth files")
-
-    # Process in batches
-    total_processed = 0
-    for i in range(0, len(gt_files), batch_size):
-        batch_gt_files = gt_files[i:i+batch_size]
-        batch_pred_files = []
-
-        # Find corresponding predictions
-        for gt_file in batch_gt_files:
-            pred_file = pred_path / gt_file.name
-            if pred_file.exists():
-                batch_pred_files.append(str(pred_file))
+            if len(gt_boxes) == 0 and len(pred_boxes) == 0:
+                total.tn += 1
             else:
-                print(f"Warning: Missing prediction for {gt_file.name}")
+                tp, fp, fn = self.__match_boxes(gt_boxes, pred_boxes, iou_threshold)
+                total.tp += tp
+                total.fp += fp
+                total.fn += fn
 
-        if not batch_pred_files:
-            continue
-
-        # Convert to tensors
-        batch_gt_files = [str(f) for f in batch_gt_files[:len(batch_pred_files)]]
-        gt_tensors = converter.batch_to_tensor(batch_gt_files).to(device)
-        pred_tensors = converter.batch_to_tensor(batch_pred_files).to(device)
-
-        # Update metrics
-        miou_metric.update(pred_tensors, gt_tensors)
-
-        # Flatten for confusion matrix (expects 1D predictions)
-        pred_flat = pred_tensors.flatten()
-        gt_flat = gt_tensors.flatten()
-        confusion_metric.update(pred_flat, gt_flat)
-
-        total_processed += len(batch_pred_files)
-        if total_processed % 100 == 0:
-            print(f"Processed {total_processed}/{len(gt_files)} files...")
-
-    print(f"Total processed: {total_processed}/{len(gt_files)}")
-    print("-" * 80)
-
-    # Compute results
-    iou_per_class = miou_metric.compute().cpu()
-    miou = iou_per_class.mean()
-
-    conf_matrix = confusion_metric.compute().cpu()
-
-    # Calculate additional metrics from confusion matrix
-    detailed_metrics = calculate_metrics_from_confusion_matrix(conf_matrix, class_names)
-
-    # Print results
-    print("\n" + "="*80)
-    print("RESULTS")
-    print("="*80)
-
-    # IoU Results
-    print(f"\nmean IoU (mIoU): {miou:.4f}")
-    print("\nPer-class IoU:")
-    for i, (iou, class_name) in enumerate(zip(iou_per_class, class_names)):
-        if iou >= 0:
-            print(f"  {class_name}: {iou:.4f}")
-        else:
-            print(f"  {class_name}: N/A (not present)")
-
-    # Confusion Matrix
-    print_confusion_matrix(conf_matrix, class_names)
-
-    # Detailed Metrics
-    print_detailed_metrics(detailed_metrics)
-
-    # Save results if requested
-    if save_output:
-        results = {
-            'miou': float(miou),
-            'per_class_iou': {
-                class_names[i]: float(iou)
-                for i, iou in enumerate(iou_per_class)
-            },
-            'confusion_matrix': conf_matrix.tolist(),
-            'metrics': {
-                k: {mk: float(mv) if isinstance(mv, (int, float, np.number)) else mv
-                    for mk, mv in v.items()}
-                for k, v in detailed_metrics.items()
-            },
-            'total_processed': total_processed
-        }
-
-        with open(save_output, 'w') as f:
-            json.dump(results, f, indent=2)
-
-        print(f"\n✓ Results saved to {save_output}")
-
-    return {
-        'miou': miou.item(),
-        'per_class_iou': iou_per_class.numpy(),
-        'confusion_matrix': conf_matrix.numpy(),
-        'metrics': detailed_metrics,
-        'total_processed': total_processed
-    }
+        return total
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Calculate mIoU and Confusion Matrix from YOLO labels'
-    )
-    parser.add_argument('--gt_dir', type=str, required=True,
-                       help='Directory with ground truth labels')
-    parser.add_argument('--pred_dir', type=str, required=True,
-                       help='Directory with prediction labels')
-    parser.add_argument('--num_classes', type=int, required=True,
-                       help='Number of classes')
-    parser.add_argument('--class_names', type=str, nargs='+',
-                       help='Class names (e.g., --class_names background person car)')
-    parser.add_argument('--img_width', type=int, default=640,
-                       help='Image width (default: 640)')
-    parser.add_argument('--img_height', type=int, default=640,
-                       help='Image height (default: 640)')
-    parser.add_argument('--batch_size', type=int, default=8,
-                       help='Batch size (default: 8)')
-    parser.add_argument('--no_background', action='store_true',
-                       help='Exclude background from mIoU calculation')
-    parser.add_argument('--cpu', action='store_true',
-                       help='Force CPU usage')
-    parser.add_argument('--save', type=str,
-                       help='Save results to JSON file')
+    def cleaup(self, tmp_dir):
+        gt_labels_dir = tmp_dir / "gt_labels"
+        pred_labels_dir = tmp_dir / "pred_labels"
 
-    args = parser.parse_args()
+        if gt_labels_dir.exists():
+            for file in gt_labels_dir.glob('*'):
+                file.unlink()
+            gt_labels_dir.rmdir()
 
-    # Validate class names
-    if args.class_names and len(args.class_names) != args.num_classes:
-        print(f"ERROR: Number of class names ({len(args.class_names)}) "
-              f"doesn't match num_classes ({args.num_classes})")
-        return
+        if pred_labels_dir.exists():
+            for file in pred_labels_dir.glob('*'):
+                file.unlink()
+            pred_labels_dir.rmdir()
 
-    # Determine device
-    device = 'cpu' if args.cpu else ('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Run calculation
-    results = calculate_all_metrics(
-        gt_dir=args.gt_dir,
-        pred_dir=args.pred_dir,
-        num_classes=args.num_classes,
-        class_names=args.class_names,
-        img_width=args.img_width,
-        img_height=args.img_height,
-        batch_size=args.batch_size,
-        include_background=not args.no_background,
-        device=device,
-        save_output=args.save
-    )
-
-    if results:
-        print(f"\n{'='*80}")
-        print(f"✓ Successfully calculated metrics!")
-        print(f"  mIoU: {results['miou']:.4f}")
-        print(f"  Pixel Accuracy: {results['metrics']['overall']['pixel_accuracy']:.4f}")
-        print(f"  Total Processed: {results['total_processed']} files")
-        print(f"{'='*80}")
+        if tmp_dir.exists():
+            tmp_dir.rmdir()
 
 
-if __name__ == '__main__':
-    import sys
-    if len(sys.argv) == 1:
-        print("="*80)
-        print("YOLO Metrics Calculator with Confusion Matrix")
-        print("="*80)
-        print("\nUsage:")
-        print("  python run_metrics_with_confusion.py \\")
-        print("    --gt_dir ground_truth_labels \\")
-        print("    --pred_dir prediction_labels \\")
-        print("    --num_classes 3 \\")
-        print("    --class_names background person car")
-        print("\nOptions:")
-        print("  --gt_dir         : Ground truth YOLO labels directory")
-        print("  --pred_dir       : Prediction YOLO labels directory")
-        print("  --num_classes    : Number of classes")
-        print("  --class_names    : Space-separated class names (optional)")
-        print("  --img_width      : Image width (default: 640)")
-        print("  --img_height     : Image height (default: 640)")
-        print("  --batch_size     : Batch size (default: 8)")
-        print("  --no_background  : Exclude background from mIoU")
-        print("  --cpu            : Force CPU usage")
-        print("  --save           : Save results to JSON file")
-        print("\nExamples:")
-        print("\n  # Basic usage")
-        print("  python run_metrics_with_confusion.py \\")
-        print("    --gt_dir ./labels/gt \\")
-        print("    --pred_dir ./labels/pred \\")
-        print("    --num_classes 3")
-        print("\n  # With class names")
-        print("  python run_metrics_with_confusion.py \\")
-        print("    --gt_dir ./labels/gt \\")
-        print("    --pred_dir ./labels/pred \\")
-        print("    --num_classes 3 \\")
-        print("    --class_names background person car")
-        print("\n  # Save results to file")
-        print("  python run_metrics_with_confusion.py \\")
-        print("    --gt_dir ./labels/gt \\")
-        print("    --pred_dir ./labels/pred \\")
-        print("    --num_classes 3 \\")
-        print("    --save results.json")
-        print("="*80)
-    else:
-        main()
+    def compute_from_shapefiles(self,
+                                gt_shp: Path | str,
+                                pred_shp: Path | str,
+                                reference_tif_dir: Path | str,
+                                *,
+                                iou_threshold: float=0.5,
+                                cleanup: bool = False):
+        """
+        Compute confusion matrix directly from shapefiles by converting them to YOLO format.
+        This method will convert the provided ground truth and predicted shapefiles into YOLO annotation format,
+        and then compute the confusion matrix using the same logic as compute_confusion_matrix.
+
+        Args:
+            gt_shp: Path to the ground truth shapefile.
+            pred_shp: Path to the predicted shapefile.
+            reference_tif_dir: Directory containing reference TIFF images for cutout generation.
+            iou_threshold: IoU threshold for matching boxes (default=0.5).
+            cleanup: If True, temporary YOLO annotation directories will be deleted after computation.
+
+        Return:
+            ConfusionMatrix: The computed confusion matrix based on the converted YOLO annotations.
+        """
+        converter = YOLOShapefileConverter()
+
+        home = Path.home()
+
+        tmp_dir = home / "SDU/MasterThesis/OpenCV/tmp"
+        if not tmp_dir.exists():
+            tmp_dir.mkdir(parents=True)
+
+        gt_labels_dir = tmp_dir / "gt_labels"
+        if not gt_labels_dir.exists():
+            gt_labels_dir.mkdir(parents=True)
+
+        pred_labels_dir = tmp_dir / "pred_labels"
+        if not pred_labels_dir.exists():
+            pred_labels_dir.mkdir(parents=True)
+
+        converter.shapefile_to_yolo_cutouts(
+            shapefile_path = gt_shp,
+            cutouts_dir = reference_tif_dir,
+            output_labels_dir = gt_labels_dir,
+            database_model=YoloDatasetModel.OBB
+        )
+
+        converter.shapefile_to_yolo_cutouts(
+            shapefile_path = pred_shp,
+            cutouts_dir = reference_tif_dir,
+            output_labels_dir = pred_labels_dir,
+            database_model=YoloDatasetModel.OBB
+        )
+
+        results = self.compute_confusion_matrix(gt_labels_dir, pred_labels_dir, iou_threshold)
+
+        if cleanup:
+            self.cleaup(tmp_dir)
+
+        return results
+
+
+if __name__ == "__main__":
+    # Example: Specify your directories
+    cwd = Path.cwd()
+    ground_truth_dir = cwd / "shapefiles/ground_truth"
+    predictions_dir = cwd / "shapefiles/labels"
+    iou_threshold = 0.1
+
+    print("Computing confusion matrix...")
+    print(f"Ground truth directory: {ground_truth_dir}")
+    print(f"Predictions directory: {predictions_dir}")
+    print(f"IoU threshold: {iou_threshold}")
+
+    metrics = Metrics()
+    results = metrics.compute_confusion_matrix(ground_truth_dir, predictions_dir, iou_threshold)
+
+    # home = Path.home()
+    # gt_shp = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
+    # pred_shp = home / "SDU/MasterThesis/OpenCV/shapefiles/labels_shapefile.shp"
+    # reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
+
+    # metrics = Metrics()
+    # results = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir)
+
+    results.print()
+    results.plot(hold=True, save = "confusion_matrix.png")
+    results.plot(normalised=True, save = "confusion_matrix_normalised.png")
