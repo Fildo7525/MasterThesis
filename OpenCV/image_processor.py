@@ -21,6 +21,7 @@ MASK_DIR = Path()
 KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024
+TILE_ANGLE = 45 # degrees
 # ---------------------------------------------------------------------
 
 @dataclass
@@ -178,11 +179,11 @@ class ImageProcessor:
             cv.imwrite(str(out) , img)
 
     # --- Image Splitting ---
-    def split_image(self, tile_size: int = 1024):
+    def split_image(self, tile_size: int = 1024, tile_angle: float = 0):
         try:
             if not self.output_path.exists():
                 print(f"Splitting {self.input_path} into tiles...")
-                split_geotiff(self.input_path, self.output_path, tile_size, overlap=100)
+                split_geotiff(self.input_path, self.output_path, tile_size, overlap=100, angle=tile_angle)
             else:
                 print(f"Output directory {self.output_path} already exists. Skipping splitting.")
         except Exception as e:
@@ -338,7 +339,7 @@ class ImageProcessor:
             img = cv.normalize(img, img, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
 
         output_name = str(Path(input_paths.ngrdi_path).stem).replace("_ngrdi", "")
-        path = str(output_path / f"{output_name}_NEN.tif")
+        path = str(output_path / f"{output_name}_NEN.png")
         cv.imwrite(path, img)
         # print(f"Saving NEN image to {path}")
 
@@ -430,16 +431,16 @@ def process_images():
     )
 
     # Split image into tiles
-    proc.split_image(TILE_SIZE)
+    proc.split_image(TILE_SIZE, TILE_ANGLE)
 
     # ###############################
     # # Generate indices (optional) #
     # ###############################
 
-    dir: Path = OUTPUT_DIR / "rgb"
-    if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
-            proc.recreate_original_rgb_image(proc.output_path / img, dir)
+    # dir: Path = OUTPUT_DIR / "rgb"
+    # if not dir.exists():
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
+    #         proc.recreate_original_rgb_image(proc.output_path / img, dir)
 
     dir = OUTPUT_DIR / "nir"
     if not dir.exists():
@@ -455,12 +456,12 @@ def process_images():
     else:
         print("EXTENDED_RED band separation skipped; output directory already exists.")
 
-    dir = OUTPUT_DIR / "extended_green"
-    if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
-            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
-    else:
-        print("EXTENDED_GREEN band separation skipped; output directory already exists.")
+    # dir = OUTPUT_DIR / "extended_green"
+    # if not dir.exists():
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
+    #         proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
+    # else:
+    #     print("EXTENDED_GREEN band separation skipped; output directory already exists.")
 
     dir = OUTPUT_DIR / "rededge"
     if not dir.exists():
@@ -481,66 +482,66 @@ def process_images():
     # # Create and apply NIR masks #
     # ##############################
 
-    dir = MASK_DIR / "NIR_MASKS"
-    if not dir.exists():
-        proc.set_input_path(OUTPUT_DIR / "nir")
-        proc.set_mask_path(MASK_DIR / "NIR_MASKS")
+    # dir = MASK_DIR / "NIR_MASKS"
+    # if not dir.exists():
+    #     proc.set_input_path(OUTPUT_DIR / "nir")
+    #     proc.set_mask_path(MASK_DIR / "NIR_MASKS")
 
-        for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
-            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
+    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
+    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
 
-        apply_masks(proc, "NIR_MASKS")
-    else:
-        print("NIR mask creation skipped; output directory already exists.")
+    #     apply_masks(proc, "NIR_MASKS")
+    # else:
+    #     print("NIR mask creation skipped; output directory already exists.")
 
     # ##############################
     # # Create and apply RVI masks #
     # ##############################
 
-    dir = MASK_DIR / "RVI_MASKS"
-    if not dir.exists():
-        proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "RVI")
-        proc.set_mask_path(MASK_DIR / "RVI_MASKS")
+    # dir = MASK_DIR / "RVI_MASKS"
+    # if not dir.exists():
+    #     proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "RVI")
+    #     proc.set_mask_path(MASK_DIR / "RVI_MASKS")
 
-        for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
-            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
+    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
+    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
 
-        apply_masks(proc, "RVI_MASKS")
-    else:
-        print("RVI mask creation skipped; output directory already exists.")
+    #     apply_masks(proc, "RVI_MASKS")
+    # else:
+    #     print("RVI mask creation skipped; output directory already exists.")
 
     ################################
     # Create and apply NGRDI masks #
     ################################
 
-    dir = MASK_DIR / "NGRDI_MASKS"
-    if not dir.exists():
-        proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "NGRDI")
-        proc.set_mask_path(MASK_DIR / "NGRDI_MASKS")
-        os.makedirs(proc.input_path, exist_ok=True)
-        os.makedirs(proc.mask_path, exist_ok=True)
+    # dir = MASK_DIR / "NGRDI_MASKS"
+    # if not dir.exists():
+    #     proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "NGRDI")
+    #     proc.set_mask_path(MASK_DIR / "NGRDI_MASKS")
+    #     os.makedirs(proc.input_path, exist_ok=True)
+    #     os.makedirs(proc.mask_path, exist_ok=True)
 
-        for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
-            proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
+    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
+    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
 
-        apply_masks(proc, "NGRDI_MASKS")
-    else:
-        print("NGRDI mask creation skipped; output directory already exists.")
+    #      apply_masks(proc, "NGRDI_MASKS")
+    # else:
+    #     print("NGRDI mask creation skipped; output directory already exists.")
 
     ##############################
     # Create and apply RGB masks #
     ##############################
 
-    dir = MASK_DIR / "RGB_MASKS"
-    if not dir.exists():
-        Path.mkdir(dir, exist_ok=True)
-        proc.set_input_path(OUTPUT_DIR / "image_tiles")
-        proc.set_mask_path(MASK_DIR / "RGB_MASKS")
+    # dir = MASK_DIR / "RGB_MASKS"
+    # if not dir.exists():
+    #     Path.mkdir(dir, exist_ok=True)
+    #     proc.set_input_path(OUTPUT_DIR / "image_tiles")
+    #     proc.set_mask_path(MASK_DIR / "RGB_MASKS")
 
-        for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RGB masks"):
-            proc.calculate_mask_from_rgb(False, False, KERNEL_SIZE, proc.input_path / img_name)
+    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RGB masks"):
+    #         proc.calculate_mask_from_rgb(False, False, KERNEL_SIZE, proc.input_path / img_name)
 
-        apply_masks(proc, "RGB_MASKS")
+    #     apply_masks(proc, "RGB_MASKS")
 
     ############################################################
     # Create 3-band image NEN from NGRDI, Extended Red and NIR #
@@ -549,7 +550,7 @@ def process_images():
     dir = OUTPUT_DIR / "NEN_images"
     if not dir.exists():
         proc.set_input_path(OUTPUT_DIR / "image_tiles")
-        proc.set_mask_path(MASK_DIR / "NEN_MASKS")
+        # proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
         for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
             img_name_ngrdi = img_name.replace(".tif", "_ngrdi.tif")
@@ -565,8 +566,8 @@ def process_images():
                 output_path=dir
             )
 
-        for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
-            proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
+        # for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
+        #     proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
 
     else:
         print("NEN image creation skipped; output directory already exists.")
