@@ -84,7 +84,7 @@ def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, p
             )
 
 
-def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0):
+def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0, process_window=lambda x, i, j: x):
     """
     Splits a multispectral GeoTIFF into square tiles with optional overlap.
 
@@ -100,6 +100,8 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
         Overlap between adjacent tiles in pixels (default: 0)
     angle : float [degrees] (default: 0.0)
         Rotation angle in **degrees** to apply to each tile (default: 0.0)
+    process_window : Callable, optional
+        A function to process each window of the image. It should accept the window data and the tile indices (i, j) and return the processed window data. Default is a no-op function.
     """
     # Make sure output directory exists
     os.makedirs(output_dir, exist_ok=True)
