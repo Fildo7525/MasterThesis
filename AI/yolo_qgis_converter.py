@@ -12,10 +12,13 @@ from enum import IntEnum
 from pathlib import Path
 from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 from typing import List, Optional
 import geopandas as gpd
+import pandas as pd
 import rasterio
 from tqdm import tqdm
+import numpy as np
 
 class YoloDatasetModel(IntEnum):
     OBB = 0
@@ -75,22 +78,12 @@ class YOLOShapefileConverter:
         confidence_inheritance: YoloConfidenceMerging = YoloConfidenceMerging.MAX
         ) -> tuple[List[Polygon], List[int], List[str], List[float]]:
         """
-        Merge intersecting polygons into larger bounding boxes. The new merged box will inherrit the highest confidence of
-        the merged boxes.
+        OPTIMIZED: Merge intersecting polygons using spatial indexing.
 
-        Args:
-            polygons: List of Polygon objects.
-            class_ids: List of class IDs corresponding to polygons.
-            class_labels: List of class labels corresponding to polygons.
-            class_confidences: List of class confidences.
-            overlap_threshold: Minimum overlap ratio (0-1) required to merge boxes.
-                             0.1 = any intersection merges (default)
-                             1.0 = boxes must completely overlap
-
-            confidence_inheritance: Method to inherit confidence for merged boxes.
-
-        Returns:
-            Tuple of (merged_polygons, merged_class_ids, merged_class_labels)
+        Major performance improvements:
+        - Uses STRtree for spatial indexing (O(log n) queries instead of O(n))
+        - Processes polygons in batches using numpy operations where possible
+        - Reduces redundant intersection calculations
         """
         if len(polygons) == 0:
             return [], [], [], []
@@ -98,27 +91,39 @@ class YOLOShapefileConverter:
         # Clamp overlap threshold to valid range
         overlap_threshold = max(0.0, min(1.0, overlap_threshold))
 
-        # Create a list of indices that haven't been merged yet
-        unmerged_indices = set(range(len(polygons)))
+        # Build spatial index for fast intersection queries
+        spatial_index = STRtree(polygons)
+
+        # Track which polygons have been merged
+        merged_flags = np.zeros(len(polygons), dtype=bool)
+
         merged_polygons = []
         merged_class_ids = []
         merged_class_labels = []
         merged_confidences = []
 
-        while unmerged_indices:
-            # Start with the first unmerged polygon
-            current_idx = unmerged_indices.pop()
-            current_group = [current_idx]
-            current_poly = polygons[current_idx]
-            current_confidences = [class_confidences[current_idx]]
+        for i in range(len(polygons)):
+            if merged_flags[i]:
+                continue
 
-            # Keep looking for intersections until no more are found
+            # Start a new group
+            current_group = [i]
+            current_poly = polygons[i]
+            current_confidences = [class_confidences[i]]
+            merged_flags[i] = True
+
+            # Use spatial index to find candidates efficiently
+            # Only check nearby polygons instead of all polygons
             changed = True
             while changed:
                 changed = False
-                indices_to_remove = []
+                # Query spatial index for polygons that might intersect
+                candidate_indices = spatial_index.query(current_poly)
 
-                for idx in unmerged_indices:
+                for idx in candidate_indices:
+                    if merged_flags[idx]:
+                        continue
+
                     # Check if overlap ratio meets threshold
                     overlap_ratio = self._calculate_overlap_ratio(current_poly, polygons[idx])
 
@@ -126,13 +131,9 @@ class YOLOShapefileConverter:
                         current_group.append(idx)
                         # Union the polygons
                         current_poly = unary_union([current_poly, polygons[idx]])
-                        indices_to_remove.append(idx)
                         current_confidences.append(class_confidences[idx])
+                        merged_flags[idx] = True
                         changed = True
-
-                # Remove merged indices
-                for idx in indices_to_remove:
-                    unmerged_indices.remove(idx)
 
             # Get the bounding box of the merged polygon
             merged_bbox = box(*current_poly.bounds)
@@ -151,18 +152,7 @@ class YOLOShapefileConverter:
     def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int],
                                     class_labels: List[str], *, overlap_threshold: float = 0.1):
         """
-        Merge intersecting polygons into larger bounding boxes.
-
-        Args:
-            polygons: List of Polygon objects
-            class_ids: List of class IDs corresponding to polygons
-            class_labels: List of class labels corresponding to polygons
-            overlap_threshold: Minimum overlap ratio (0-1) required to merge boxes.
-                             0.0 = any intersection merges
-                             1.0 = boxes must completely overlap
-
-        Returns:
-            Tuple of (merged_polygons, merged_class_ids, merged_class_labels)
+        OPTIMIZED: Merge intersecting polygons using spatial indexing.
         """
         if len(polygons) == 0:
             return [], [], []
@@ -170,25 +160,36 @@ class YOLOShapefileConverter:
         # Clamp overlap threshold to valid range
         overlap_threshold = max(0.0, min(1.0, overlap_threshold))
 
-        # Create a list of indices that haven't been merged yet
-        unmerged_indices = set(range(len(polygons)))
+        # Build spatial index for fast intersection queries
+        spatial_index = STRtree(polygons)
+
+        # Track which polygons have been merged
+        merged_flags = np.zeros(len(polygons), dtype=bool)
+
         merged_polygons = []
         merged_class_ids = []
         merged_class_labels = []
 
-        while unmerged_indices:
-            # Start with the first unmerged polygon
-            current_idx = unmerged_indices.pop()
-            current_group = [current_idx]
-            current_poly = polygons[current_idx]
+        for i in range(len(polygons)):
+            if merged_flags[i]:
+                continue
 
-            # Keep looking for intersections until no more are found
+            # Start a new group
+            current_group = [i]
+            current_poly = polygons[i]
+            merged_flags[i] = True
+
+            # Use spatial index to find candidates efficiently
             changed = True
             while changed:
                 changed = False
-                indices_to_remove = []
+                # Query spatial index for polygons that might intersect
+                candidate_indices = spatial_index.query(current_poly)
 
-                for idx in unmerged_indices:
+                for idx in candidate_indices:
+                    if merged_flags[idx]:
+                        continue
+
                     # Check if overlap ratio meets threshold
                     overlap_ratio = self._calculate_overlap_ratio(current_poly, polygons[idx])
 
@@ -196,12 +197,8 @@ class YOLOShapefileConverter:
                         current_group.append(idx)
                         # Union the polygons
                         current_poly = unary_union([current_poly, polygons[idx]])
-                        indices_to_remove.append(idx)
+                        merged_flags[idx] = True
                         changed = True
-
-                # Remove merged indices
-                for idx in indices_to_remove:
-                    unmerged_indices.remove(idx)
 
             # Get the bounding box of the merged polygon
             merged_bbox = box(*current_poly.bounds)
@@ -222,7 +219,9 @@ class YOLOShapefileConverter:
                           save: bool = True,
                           class_names: Optional[List[str]] = None,
                           merge_intersecting: bool = True,
-                          overlap_threshold: float = 0.1):
+                          overlap_threshold: float = 0.1,
+                          min_area: float = 0.003,
+                          max_area: float = 0.41):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -369,6 +368,23 @@ class YOLOShapefileConverter:
         if len(polygons) == 0:
             return None
 
+        # Filter out polygons with invalid areas
+        filtered_polygons = []
+        filtered_class_ids = []
+        filtered_class_labels = []
+
+        for i, poly in enumerate(polygons):
+            if poly.area < min_area or poly.area > max_area:
+                print(f"Warning: Skipping polygon with area {poly.area:.6f}")
+            else:
+                filtered_polygons.append(poly)
+                filtered_class_ids.append(class_ids[i])
+                filtered_class_labels.append(class_labels[i])
+
+        polygons = filtered_polygons
+        class_ids = filtered_class_ids
+        class_labels = filtered_class_labels
+
         # Create GeoDataFrame
         gdf = gpd.GeoDataFrame({
             'class_id': class_ids,
@@ -392,6 +408,7 @@ class YOLOShapefileConverter:
                         ):
         """
         Convert shapefile annotations to YOLOv5 format for a specific cutout
+        OPTIMIZED: Uses spatial indexing for faster polygon-in-bounds checks.
 
         Args:
             shapefile_path: Input shapefile path
@@ -427,11 +444,23 @@ class YOLOShapefileConverter:
         # Create geographic bounding box for cutout
         cutout_bbox = box(bounds.left, bounds.bottom, bounds.right, bounds.top)
 
-        # Find intersecting annotations
-        intersecting = gdf[gdf.intersects(cutout_bbox)]
+        # OPTIMIZED: Use spatial index to find only intersecting polygons
+        if len(gdf) > 0:
+            spatial_index = STRtree(gdf.geometry.values)
+            candidate_indices = spatial_index.query(cutout_bbox)
+
+            # Filter to only geometries that actually intersect
+            gdf_filtered = gdf.iloc[candidate_indices]
+            intersecting = gdf_filtered[gdf_filtered.intersects(cutout_bbox)]
+        else:
+            intersecting = gdf[gdf.intersects(cutout_bbox)]
 
         if len(intersecting) == 0:
-            print(f"Warning: No annotations intersect with {reference_tif_file}")
+            # print(f"Warning: No annotations intersect with {reference_tif_file}")
+            # Create empty label file
+            output_path = Path(output_yolo_label)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("")
             return []
 
         # Ensure output directory exists
@@ -512,7 +541,7 @@ class YOLOShapefileConverter:
                     'height': height
                 })
 
-        print(f"Saved {len(annotations)} annotations to {output_yolo_label}")
+        # print(f"Saved {len(annotations)} annotations to {output_yolo_label}")
         return annotations
 
 
@@ -521,7 +550,9 @@ class YOLOShapefileConverter:
                             reference_tif_dir: str | Path,
                             output_shapefile: str | Path,
                             merge_intersecting: bool = True,
-                            overlap_threshold: float = 0.1) -> None:
+                            overlap_threshold: float = 0.1,
+                            min_area: float = 0.003,
+                            max_area: float = 0.41) -> None:
         """
         Convert multiple YOLOv5 label files to shapefiles using corresponding TIF file Properties
 
@@ -568,7 +599,6 @@ class YOLOShapefileConverter:
                 print(f"Warning: Corresponding TIF file not found for {label_file}, skipping.")
                 continue
 
-            # print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
             try:
                 self.label_to_shapefile(
                     yolo_label_path=label_file,
@@ -577,6 +607,8 @@ class YOLOShapefileConverter:
                     save=True,
                     merge_intersecting=merge_intersecting,
                     overlap_threshold=overlap_threshold,
+                    min_area=min_area,
+                    max_area=max_area
                 )
                 processed_count += 1
 
@@ -648,30 +680,36 @@ if __name__ == "__main__":
     converter = YOLOShapefileConverter()
 
     home = Path.home()
-    # labels_dir = home / "Downloads/Bjornkjaervej_TestFlight_2_small.v4-potatoes-no_augment_removed_maybe.yolov12/train/labels"
+    converter = YOLOShapefileConverter()
 
-    # for label_file in os.listdir(labels_dir):
-    #     if label_file.endswith('.txt'):
-    #         index = label_file.find("_NEN")
-    #         new_file_name = label_file[:index] + ".txt"
-    #         os.rename(os.path.join(labels_dir, label_file), os.path.join(labels_dir, new_file_name))
+    home = Path.home()
+    labels_dir = Path.cwd() / "shapefiles" / "labels"
+    ref_tif = Path("./opencv_output")
+    pred_shp = labels_dir.parent / "labels_shapefile.shp"
 
-    # # Example: Convert cutout YOLO labels to shapefile with merging
-    # converter.labels_to_shapefile(
-    #     labels_dir=labels_dir,
-    #     reference_tif_dir=home / "SDU/MasterThesis/Orthomosaics/example_tiles",
-    #     output_shapefile=home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp",
-    #     merge_intersecting=True,  # Enable merging of intersecting boxes
-    #     overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
+    # Example: Convert cutout YOLO labels to shapefile with merging
+    converter.labels_to_shapefile(
+        labels_dir=labels_dir,
+        reference_tif_dir=ref_tif,
+        output_shapefile=pred_shp,
+        merge_intersecting=True,  # Enable merging of intersecting boxes
+        overlap_threshold=0.1,
+        min_area=0.004,
+        max_area=0.41
+    )
+
+    # shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
+    # reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
+    # output_labels_dir = home / "SDU/MasterThesis/OpenCV/shapefiles/ground_truth"
+
+    # results = converter.shapefile_to_yolo_cutouts(
+    #     shapefile_path = shapefile_path,
+    #     cutouts_dir = reference_tif_dir,
+    #     output_labels_dir = output_labels_dir,
+    #     database_model=YoloDatasetModel.OBB
     # )
 
-    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
-    cutouts_dir = home / 'SDU/MasterThesis/OpenCV/shapefiles/ground_truth'
-    reference_tif_dir = home / "SDU/MasterThesis/Orthomosaics/example_tiles"
+    # for res in results:
+    #     print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
+    #     # print(f" - {num_ann}")
 
-    converter.shapefile_to_yolo_cutouts(
-        shapefile_path = shapefile_path,
-        cutouts_dir = reference_tif_dir,
-        output_labels_dir = cutouts_dir,
-        database_model=YoloDatasetModel.OBB
-    )
