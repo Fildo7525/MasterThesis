@@ -12,10 +12,17 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from AI.yolo_qgis_converter import YOLOShapefileConverter
+from metrics import Metrics, ConfusionMatrix
 
 THRESHOLDED_CUTOUTS_DIR = Path("./thresholded_cutouts")
 LABELS_TO_SHP_DIR = Path.cwd() / "shapefiles" / "labels"
 LABELS_TO_SHP_DIR.mkdir(parents=True, exist_ok=True)
+
+MIN_AREA_PX = 160
+MAX_AREA_PX = 16_200
+
+MIN_AREA_M2 = 0.004
+MAX_AREA_M2 = 0.404457
 
 def to_cv_uint8(all_bands: np.ndarray,
                bands: List[int]) -> np.ndarray:
@@ -46,10 +53,11 @@ def extract_segmented_objects(image: MatLike,
                               mask: MatLike,
                               row: int,
                               column: int,
-                              min_area: int = 10,
-                              max_area: int = 500_000) -> tuple[List[np.ndarray], List[tuple[int, int, int, int]]]:
+                              min_area: int = MIN_AREA_PX,
+                              max_area: int = MIN_AREA_PX) -> tuple[List[np.ndarray], List[tuple[int, int, int, int]]]:
     """
     Extract segmented objects from an image using a binary mask.
+    The limits were chosen based on the calculated areas in qgis from the ground truth shapefiles.
 
     Args:
         image (MatLike): HxW or HxWxC numpy array
@@ -78,7 +86,8 @@ def extract_segmented_objects(image: MatLike,
             # Create mask for this object
             obj_mask = (labels == label).astype(np.uint8)
 
-            x, y, w, h, area = stats[label]
+            x, y, w, h, mask_area = stats[label]
+            area = w * h
             if area < min_area or max_area < area:
                 continue
 
@@ -115,7 +124,6 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
 
     out_dir = THRESHOLDED_CUTOUTS_DIR / f"t_{row}_{column}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"tile_{row}_{column}.png"
 
     # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
     thresholded = np.ascontiguousarray(to_cv_uint8(bands, [0])[:, :, 0])
@@ -128,10 +136,16 @@ def process_window(bands: np.ndarray, row: int, column: int) -> np.ndarray:
 
     img: np.ndarray = get_tile_png(row, column)
     # print(f"Got tile png at {row}, {column}, shape: {img.shape}, type: {img.dtype}")
-    objects, bboxes = extract_segmented_objects(img, thresholded, min_area=100, max_area=100_000, row=row, column=column)
+
+    out_path = out_dir.parent / "saved" / f"tile_{row}_{column}.png"
+    if not out_path.parent.exists():
+         out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    cv.imwrite(str(out_path), thresholded.astype(np.uint8))
+
+    objects, bboxes = extract_segmented_objects(img, thresholded, row=row, column=column)
     if objects == []:
         # print(f"No objects extracted from tile r:{row} c:{column}.")
-        cv.imwrite(str(out_path), thresholded.astype(np.uint8))
         return bands
 
     i = 0
@@ -192,30 +206,31 @@ if __name__ == "__main__":
     )
 
     converter = YOLOShapefileConverter()
-    converter.labels_to_shapefile(LABELS_TO_SHP_DIR, ref_tif, LABELS_TO_SHP_DIR / "labels_shapefile.shp")
+    pred_shp = LABELS_TO_SHP_DIR / "labels_shapefile.shp"
+    converter.labels_to_shapefile(
+        LABELS_TO_SHP_DIR,
+        ref_tif,
+        pred_shp,
+        min_area= MIN_AREA_M2,
+        max_area= MAX_AREA_M2,
+    )
 
-    # with open(LABELS_TO_SHP_DIR / "labels_shapefile_log.txt", "w") as f:
-    #     for area in AREA_HISTOGRAM_ARRAY:
-    #         f.write(f"{area}\n")
+    cwd = Path.cwd()
+    home = Path.home()
+    gt_shp = cwd / "shapefiles/BV_TF2_small.shp"
+    reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
+    iou_threshold = 0.1
 
-    # from matplotlib import pyplot as plt
-    # plt.hist(AREA_HISTOGRAM_ARRAY, bins=10_000)
-    # plt.title("Area Histogram of Detected Objects")
-    # plt.xlabel("Area (pixels)")
-    # plt.ylabel("Frequency")
-    # plt.xlim(0, 5000)
-    # plt.yscale("log")
-    # plt.show()
+    print("Computing confusion matrix...")
+    print(f"Ground truth shape: {gt_shp}")
+    print(f"Predictions shape: {pred_shp}")
+    print(f"IoU threshold: {iou_threshold}")
 
-    # print("Mean area of detected objects:", AREA_HISTOGRAM_ARRAY.mean())
-    # print("Median area of detected objects:", np.median(AREA_HISTOGRAM_ARRAY))
-    # print(f"Q1 area: {np.percentile(AREA_HISTOGRAM_ARRAY, 25)}")
-    # print(f"Q3 area: {np.percentile(AREA_HISTOGRAM_ARRAY, 75)}")
-    # print(f"Max area: {AREA_HISTOGRAM_ARRAY.max()}")
-    # print(f"Min area: {AREA_HISTOGRAM_ARRAY.min()}")
-
-    # print("All done.")
-    # print("✅ Image splitting finished.")
+    metrics = Metrics()
+    results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
+    results.print()
+    results.plot(hold=True, save = "confusion_matrix.png")
+    results.plot(hold=True, normalised=True, save = "confusion_matrix_normalised.png")
 
     # read_multiband_tiff(Path("./opencv_output/tile_0_0.tif"))
 
