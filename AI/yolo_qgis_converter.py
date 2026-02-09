@@ -448,20 +448,20 @@ class YOLOShapefileConverter:
                 if clipped.is_empty or clipped.area == 0:
                     continue
 
-                # # Get bounds of clipped geometry
-                # clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
+                # Get bounds of clipped geometry
+                clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
 
-                # # Transform inverse: geo coords to pixel coords
+                # Transform inverse: geo coords to pixel coords
                 inv_transform = ~transform
 
-                # # Get corners in pixel space
-                # x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
-                # x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
-                # x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
-                # x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
+                # Get corners in pixel space
+                x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
+                x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
+                x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
+                x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
-                # # Get class ID
-                # class_id = 0 #int(row.get('class_id', 0))
+                # Get class ID
+                class_id = 0 #int(row.get('class_id', 0))
 
                 arr = []
 
