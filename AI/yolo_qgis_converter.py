@@ -405,6 +405,8 @@ class YOLOShapefileConverter:
                          output_yolo_label: Path | str,
                          *,
                          database_model: YoloDatasetModel,
+                         min_width: float = 0.02,
+                         min_height: float = 0.02,
                         ):
         """
         Convert shapefile annotations to YOLOv5 format for a specific cutout
@@ -474,7 +476,10 @@ class YOLOShapefileConverter:
 
                 # Clip to cutout bounds
                 clipped = geom.intersection(cutout_bbox)
-                if clipped.is_empty or clipped.area == 0:
+                minx, miny, maxx, maxy = clipped.bounds
+                width = maxx - minx
+                height = maxy - miny
+                if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
                     continue
 
                 # Get bounds of clipped geometry
@@ -627,7 +632,9 @@ class YOLOShapefileConverter:
         output_labels_dir: Path | str,
         tif_extension: Path | str = '.tif',
         *,
-        database_model: YoloDatasetModel):
+        database_model: YoloDatasetModel,
+        min_width: float = 0.02,
+        min_height: float = 0.02):
         """
         Convert shapefile to YOLO labels for multiple cutout TIF files
 
@@ -659,7 +666,9 @@ class YOLOShapefileConverter:
                     shapefile_path=shapefile_path,
                     reference_tif_file=str(tif_file),
                     output_yolo_label=str(output_label),
-                    database_model=database_model
+                    database_model=database_model,
+                    min_width=min_width,
+                    min_height=min_height
                 )
 
                 results.append({
@@ -677,39 +686,37 @@ class YOLOShapefileConverter:
 
 # Example usage
 if __name__ == "__main__":
-    converter = YOLOShapefileConverter()
-
     home = Path.home()
     converter = YOLOShapefileConverter()
 
-    home = Path.home()
-    labels_dir = Path.cwd() / "shapefiles" / "labels"
-    ref_tif = Path("./opencv_output")
-    pred_shp = labels_dir.parent / "labels_shapefile.shp"
+    # home = Path.home()
+    # labels_dir = Path.cwd() / "shapefiles" / "labels"
+    # ref_tif = Path("./opencv_output")
+    # pred_shp = labels_dir.parent / "labels_shapefile.shp"
 
-    # Example: Convert cutout YOLO labels to shapefile with merging
-    converter.labels_to_shapefile(
-        labels_dir=labels_dir,
-        reference_tif_dir=ref_tif,
-        output_shapefile=pred_shp,
-        merge_intersecting=True,  # Enable merging of intersecting boxes
-        overlap_threshold=0.1,
-        min_area=0.004,
-        max_area=0.41
-    )
-
-    # shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
-    # reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
-    # output_labels_dir = home / "SDU/MasterThesis/OpenCV/shapefiles/ground_truth"
-
-    # results = converter.shapefile_to_yolo_cutouts(
-    #     shapefile_path = shapefile_path,
-    #     cutouts_dir = reference_tif_dir,
-    #     output_labels_dir = output_labels_dir,
-    #     database_model=YoloDatasetModel.OBB
+    # # Example: Convert cutout YOLO labels to shapefile with merging
+    # converter.labels_to_shapefile(
+    #     labels_dir=labels_dir,
+    #     reference_tif_dir=ref_tif,
+    #     output_shapefile=pred_shp,
+    #     merge_intersecting=True,  # Enable merging of intersecting boxes
+    #     overlap_threshold=0.1,
+    #     min_area=0.004,
+    #     max_area=0.41
     # )
 
+    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
+    reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
+    output_labels_dir = home / "SDU/MasterThesis/OpenCV/shapefiles/test"
+
+    results = converter.shapefile_to_yolo_cutouts(
+        shapefile_path = shapefile_path,
+        cutouts_dir = reference_tif_dir,
+        output_labels_dir = output_labels_dir,
+        database_model=YoloDatasetModel.OBB
+    )
+
     # for res in results:
-    #     print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
-    #     # print(f" - {num_ann}")
+        # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
+        # print(f" - {num_ann}")
 
