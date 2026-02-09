@@ -7,6 +7,7 @@ Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
 """
 
+import affine
 from shapely.geometry.base import BaseGeometry
 from enum import IntEnum
 from pathlib import Path
@@ -18,6 +19,7 @@ import geopandas as gpd
 import rasterio
 from tqdm import tqdm
 import numpy as np
+import subprocess
 
 class YoloDatasetModel(IntEnum):
     OBB = 0
@@ -437,6 +439,8 @@ class YOLOShapefileConverter:
         # Read shapefile
         gdf = gpd.read_file(shapefile_path)
 
+        gdf = gdf.affine_transform(transform[:-3])
+
         # Ensure CRS matches
         if gdf.crs != crs:
             print(f"Reprojecting shapefile from {gdf.crs} to {crs}")
@@ -490,7 +494,7 @@ class YOLOShapefileConverter:
                 arr = []
 
                 if database_model == YoloDatasetModel.SEGMENTATION:
-                    # Extract actual polygon coordinates for segmentation
+                     # Extract actual polygon coordinates for segmentation
                     # Handle different geometry types
                     if clipped.geom_type == 'Polygon':
                         coords = list(clipped.exterior.coords)
@@ -506,14 +510,36 @@ class YOLOShapefileConverter:
                     if len(coords) > 1 and coords[0] == coords[-1]:
                         coords = coords[:-1]
 
-                    # Convert geographic coordinates to pixel coordinates and normalize
+                    # Get the bounds of the tile in geographic coordinates
+                    tile_bounds = bounds  # (left, bottom, right, top)
+
+                    subprocess.run(
+                        [
+                        "qgis_process",
+                        "run native:rotatefeatures",
+                        "--distance_units=meters",
+                        "--area_units=m2",
+                        "--ellipsoid=EPSG:7019",
+                        "--INPUT='memory://MultiPolygon?crs=EPSG:25832&field=class_id:long(18,0)&field=class_name:string(80,0)&uid={5f58d0f9-2007-4c3a-b8d0-076ebb01e54c}'",
+                        "--ANGLE=45",
+                        "--ANCHOR='497065.628569,6249479.201591 [EPSG:25832]'",
+                        "--OUTPUT=TEMPORARY_OUTPUT"
+                        ]
+                    )
+                    
+                    # Convert geographic coordinates to normalized [0,\n 1] coordinates
                     pixel_coords = []
                     for geo_x, geo_y in coords:
-                        # Transform to pixel space
-                        pix_x, pix_y = inv_transform * (geo_x, geo_y)
-                        # Normalize to [0, 1]
-                        norm_x = pix_x / width
-                        norm_y = pix_y / height
+                        # Normalize based on tile bounds
+                        # X: from left to right edge of tile
+                        norm_x = (geo_x - tile_bounds.left) / (tile_bounds.right - tile_bounds.left)
+                        # Y: from top to bottom edge of tile (note: image Y is inverted)
+                        norm_y = (tile_bounds.top - geo_y) / (tile_bounds.top - tile_bounds.bottom)
+                        
+                        # Clamp to [0, 1] to handle any floating point issues
+                        norm_x = max(0.0, min(1.0, norm_x))
+                        norm_y = max(0.0, min(1.0, norm_y))
+                        
                         pixel_coords.extend([norm_x, norm_y])
 
                     arr = pixel_coords
@@ -727,15 +753,15 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
-    reference_tif_dir = home / "SDU/MasterThesis/OpenCV/splits"
-    output_labels_dir = home / "SDU/MasterThesis/OpenCV/shapefiles/test"
+    shapefile_path = home / "test/MasterThesis/Orthomosaics/shape_files/BV_F2_small_45.shp"
+    reference_tif_dir = home / "test/MasterThesis/Orthomosaics/rotated/processed_output/image_tiles"
+    output_labels_dir = home / "test/MasterThesis/Orthomosaics/rotated/labels"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
         cutouts_dir = reference_tif_dir,
         output_labels_dir = output_labels_dir,
-        database_model=YoloDatasetModel.OBB
+        database_model=YoloDatasetModel.SEGMENTATION
     )
 
     # for res in results:
