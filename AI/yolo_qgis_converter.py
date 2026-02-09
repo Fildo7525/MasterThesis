@@ -435,6 +435,7 @@ class YOLOShapefileConverter:
             width = src.width
             height = src.height
             bounds = src.bounds
+            espg = ":".join(list(src.crs.to_authority()))
 
         # Read shapefile
         gdf = gpd.read_file(shapefile_path)
@@ -512,21 +513,25 @@ class YOLOShapefileConverter:
 
                     # Get the bounds of the tile in geographic coordinates
                     tile_bounds = bounds  # (left, bottom, right, top)
+                    tmp_shp_file = output_path.with_suffix('.tmp.shp')
 
-                    subprocess.run(
-                        [
+
+                    angle = 45
+                    tile_center_x = (tile_bounds.left + tile_bounds.right) / 2
+                    tile_center_y = (tile_bounds.top + tile_bounds.bottom) / 2
+
+                    subprocess.run([
                         "qgis_process",
                         "run native:rotatefeatures",
                         "--distance_units=meters",
                         "--area_units=m2",
                         "--ellipsoid=EPSG:7019",
-                        "--INPUT='memory://MultiPolygon?crs=EPSG:25832&field=class_id:long(18,0)&field=class_name:string(80,0)&uid={5f58d0f9-2007-4c3a-b8d0-076ebb01e54c}'",
-                        "--ANGLE=45",
-                        "--ANCHOR='497065.628569,6249479.201591 [EPSG:25832]'",
-                        "--OUTPUT=TEMPORARY_OUTPUT"
-                        ]
-                    )
-                    
+                        f"--INPUT='{shapefile_path}'",
+                        f"--ANGLE={angle}",
+                        f"--ANCHOR='{tile_center_x},{tile_center_y} [{espg}]'",
+                        f"--OUTPUT={tmp_shp_file}"
+                    ])
+
                     # Convert geographic coordinates to normalized [0,\n 1] coordinates
                     pixel_coords = []
                     for geo_x, geo_y in coords:
@@ -535,18 +540,18 @@ class YOLOShapefileConverter:
                         norm_x = (geo_x - tile_bounds.left) / (tile_bounds.right - tile_bounds.left)
                         # Y: from top to bottom edge of tile (note: image Y is inverted)
                         norm_y = (tile_bounds.top - geo_y) / (tile_bounds.top - tile_bounds.bottom)
-                        
+
                         # Clamp to [0, 1] to handle any floating point issues
                         norm_x = max(0.0, min(1.0, norm_x))
                         norm_y = max(0.0, min(1.0, norm_y))
-                        
+
                         pixel_coords.extend([norm_x, norm_y])
 
                     arr = pixel_coords
 
                 elif database_model == YoloDatasetModel.OBB:
                     # For OBB, use the bounding box of the clipped geometry
-                    minx, miny, maxx, maxy = clipped.bounds  # (minx, miny, maxx, maxy)
+                    minx, miny, maxx, maxy = clipped.bounds
 
                     # Get corners in pixel space
                     x_top_left, y_top_left = inv_transform * (minx, maxy)
@@ -766,4 +771,4 @@ if __name__ == "__main__":
 
     # for res in results:
         # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
-        # print(f" - {num_ann}")
+        # print(f" - {num_aTEMPORARY_OUTPUTnn}")
