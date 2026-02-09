@@ -145,7 +145,7 @@ if __name__ == "__main__":
     print(os.listdir(ORTHO_IMG_DIR))
 
     output_dir = ORTHO_IMG_DIR / "example_tiles"
-    split_geotiff(ORTHO_IMG_DIR / "small" / "20250827_Bjørnkjærvej_TestFlight_2_small.tif", output_dir, tile_size, overlap, 45.0)
+    split_geotiff(ORTHO_IMG_DIR / "small" / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif", output_dir, tile_size, overlap, 45.0)
     # for img in ORTHO_IMG_DIR.glob("*.tif"):
     #     output_dir = ORTHO_IMG_DIR / f"{img.stem}_tiles"
     #     split_geotiff(img, output_dir, tile_size, overlap)

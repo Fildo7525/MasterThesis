@@ -1,8 +1,8 @@
 {
 	"recalculate": true,
 	"input_path": "/home/samuel/test/MasterThesis/Orthomosaics",
-	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/large/processed_output",
-	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/large/masks",
+	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/rotated/processed_output",
+	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/rotated/masks",
 	"CIG": false,
 	"CIRE": false,
 	"CIVE": false,

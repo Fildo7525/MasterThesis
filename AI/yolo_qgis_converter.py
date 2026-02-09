@@ -448,20 +448,20 @@ class YOLOShapefileConverter:
                 if clipped.is_empty or clipped.area == 0:
                     continue
 
-                # Get bounds of clipped geometry
-                clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
+                # # Get bounds of clipped geometry
+                # clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
 
-                # Transform inverse: geo coords to pixel coords
+                # # Transform inverse: geo coords to pixel coords
                 inv_transform = ~transform
 
-                # Get corners in pixel space
-                x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
-                x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
-                x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
-                x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
+                # # Get corners in pixel space
+                # x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
+                # x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
+                # x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
+                # x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
-                # Get class ID
-                class_id = 0 #int(row.get('class_id', 0))
+                # # Get class ID
+                # class_id = 0 #int(row.get('class_id', 0))
 
                 arr = []
 
@@ -658,20 +658,20 @@ if __name__ == "__main__":
 
     # # Example: Convert cutout YOLO labels to shapefile with merging
     # converter.labels_to_shapefile(
-    #     labels_dir=labels_dir,
-    #     reference_tif_dir=home / "SDU/MasterThesis/Orthomosaics/example_tiles",
-    #     output_shapefile=home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp",
+    #     labels_dir=home / 'test/MasterThesis/Orthomosaics/shape_files/ground_truth',
+    #     reference_tif_dir=home / "test/MasterThesis/Orthomosaics/rotated/rotated_45/large/processed_output/image_tiles",
+    #     output_shapefile=home / "test/MasterThesis/Orthomosaics/shape_files/test.shp",
     #     merge_intersecting=True,  # Enable merging of intersecting boxes
     #     overlap_threshold=0.1  # Merge if boxes overlap by at least 10%
     # )
 
-    shapefile_path = home / "SDU/MasterThesis/OpenCV/shape_files/BV_F2_small_45.shp"
-    cutouts_dir = home / 'SDU/MasterThesis/OpenCV/shapefiles/ground_truth'
-    reference_tif_dir = home / "/home/samuel/SDU/MasterThesis/Orthomosaics/small/processed_output/image_tiles"
+    shapefile_path =  "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/small_field/BV_F2_small.shp"
+    cutouts_dir = home / 'test/MasterThesis/Orthomosaics/shape_files/ground_truth'
+    reference_tif_dir = home / "test/MasterThesis/Orthomosaics/translated/processed_output/image_tiles"
 
     converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
         cutouts_dir = reference_tif_dir,
         output_labels_dir = cutouts_dir,
-        database_model=YoloDatasetModel.OBB
+        database_model=YoloDatasetModel.SEGMENTATION
     )

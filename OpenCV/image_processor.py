@@ -21,7 +21,7 @@ MASK_DIR = Path()
 KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024
-TILE_ANGLE = 0 # degrees
+TILE_ANGLE = 45 # degrees
 # ---------------------------------------------------------------------
 
 @dataclass
@@ -179,11 +179,11 @@ class ImageProcessor:
             cv.imwrite(str(out) , img)
 
     # --- Image Splitting ---
-    def split_image(self, tile_size: int = 1024):
+    def split_image(self, tile_size: int = 1024, angle: int = 0, overlap: int = 100):
         try:
             if not self.output_path.exists():
                 print(f"Splitting {self.input_path} into tiles...")
-                split_geotiff(self.input_path, self.output_path, tile_size, overlap=100)
+                split_geotiff(self.input_path, self.output_path, tile_size, overlap=overlap, angle=angle)
             else:
                 print(f"Output directory {self.output_path} already exists. Skipping splitting.")
         except Exception as e:
@@ -432,13 +432,13 @@ def process_images():
     OUTPUT_DIR = HOME_DIR / config.get("output_path", "")
     MASK_DIR = HOME_DIR / config.get("mask_path", "")
     proc = ImageProcessor(
-        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjornkjaervej_TestFlight_2_bigger_v2.tif",
+        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjornkjaervej_TestFlight_2_small.tif",
         output_path=OUTPUT_DIR /  "image_tiles",
         mask_path=MASK_DIR
     )
 
-    # Split image into tiles
-    proc.split_image(TILE_SIZE)
+    # # Split image into tiles
+    proc.split_image(TILE_SIZE, TILE_ANGLE, 100)
 
     # ###############################
     # # Generate indices (optional) #
@@ -447,11 +447,15 @@ def process_images():
     dir: Path = OUTPUT_DIR / "rgb"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
+            if "xml" in img:
+                continue
             proc.recreate_original_rgb_image(proc.output_path / img, dir)
 
     dir = OUTPUT_DIR / "nir"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
+            if "xml" in img:
+                continue
             proc.separate_band(proc.output_path / img, dir, Bands.NIR)
     else:
         print("NIR band separation skipped; output directory already exists.")
@@ -459,6 +463,8 @@ def process_images():
     dir = OUTPUT_DIR / "extended_red"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
+            if "xml" in img:
+                continue
             proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED)
     else:
         print("EXTENDED_RED band separation skipped; output directory already exists.")
@@ -466,6 +472,8 @@ def process_images():
     dir = OUTPUT_DIR / "extended_green"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
+            if "xml" in img:
+                continue
             proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN)
     else:
         print("EXTENDED_GREEN band separation skipped; output directory already exists.")
@@ -473,6 +481,8 @@ def process_images():
     dir = OUTPUT_DIR / "rededge"
     if not dir.exists():
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating REDEDGE bands from image tiles"):
+            if "xml" in img:
+                continue
             proc.separate_band(proc.output_path / img, dir, Bands.REDEDGE)
     else:
         print("REDEDGE band separation skipped; output directory already exists.")
@@ -480,6 +490,8 @@ def process_images():
     dir: Path = OUTPUT_DIR / "image_tiles_indeces"
     if recalculate:
         for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
+            if "xml" in img:
+                continue
             proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
     else:
         print("Index calculation skipped; output directory already exists.")
