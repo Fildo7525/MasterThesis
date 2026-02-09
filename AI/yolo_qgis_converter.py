@@ -15,7 +15,6 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from typing import List, Optional
 import geopandas as gpd
-import pandas as pd
 import rasterio
 from tqdm import tqdm
 import numpy as np
@@ -482,17 +481,8 @@ class YOLOShapefileConverter:
                 if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
                     continue
 
-                # Get bounds of clipped geometry
-                clip_bounds = clipped.bounds  # (minx, miny, maxx, maxy)
-
                 # Transform inverse: geo coords to pixel coords
                 inv_transform = ~transform
-
-                # Get corners in pixel space
-                x_top_left, y_top_left = inv_transform * (clip_bounds[0], clip_bounds[3])
-                x_top_right, y_top_right = inv_transform * (clip_bounds[2], clip_bounds[3])
-                x_bottom_right, y_bottom_right = inv_transform * (clip_bounds[2], clip_bounds[1])
-                x_bottom_left, y_bottom_left = inv_transform * (clip_bounds[0], clip_bounds[1])
 
                 # Get class ID
                 class_id = 0 #int(row.get('class_id', 0))
@@ -500,29 +490,55 @@ class YOLOShapefileConverter:
                 arr = []
 
                 if database_model == YoloDatasetModel.SEGMENTATION:
-                    # Normalize to YOLO format [0, 1]
-                    x_top_left /= width
-                    y_top_left /= height
-                    x_top_right /= width
-                    y_top_right /= height
-                    x_bottom_right /= width
-                    y_bottom_right /= height
-                    x_bottom_left /= width
-                    y_bottom_left /= height
+                    # Extract actual polygon coordinates for segmentation
+                    # Handle different geometry types
+                    if clipped.geom_type == 'Polygon':
+                        coords = list(clipped.exterior.coords)
+                    elif clipped.geom_type == 'MultiPolygon':
+                        # For MultiPolygon, use the largest polygon
+                        largest_poly = max(clipped.geoms, key=lambda p: p.area)
+                        coords = list(largest_poly.exterior.coords)
+                    else:
+                        # Skip unsupported geometry types
+                        continue
 
-                    arr = [
-                       x_top_left, y_top_left,
-                       x_top_right, y_top_right,
-                       x_bottom_right, y_bottom_right,
-                       x_bottom_left, y_bottom_left,
-                    ]
+                    # Remove duplicate last coordinate if it exists (closed polygon)
+                    if len(coords) > 1 and coords[0] == coords[-1]:
+                        coords = coords[:-1]
+
+                    # Convert geographic coordinates to pixel coordinates and normalize
+                    pixel_coords = []
+                    for geo_x, geo_y in coords:
+                        # Transform to pixel space
+                        pix_x, pix_y = inv_transform * (geo_x, geo_y)
+                        # Normalize to [0, 1]
+                        norm_x = pix_x / width
+                        norm_y = pix_y / height
+                        pixel_coords.extend([norm_x, norm_y])
+
+                    arr = pixel_coords
 
                 elif database_model == YoloDatasetModel.OBB:
+                    # For OBB, use the bounding box of the clipped geometry
+                    minx, miny, maxx, maxy = clipped.bounds  # (minx, miny, maxx, maxy)
+
+                    # Get corners in pixel space
+                    x_top_left, y_top_left = inv_transform * (minx, maxy)
+                    x_top_right, y_top_right = inv_transform * (maxx, maxy)
+                    _, y_bottom_left = inv_transform * (minx, miny)
+
                     # Calculate center, width, height
                     x_center = (x_top_left + x_top_right) / 2
                     y_center = (y_top_left + y_bottom_left) / 2
                     box_width = x_top_right - x_top_left
                     box_height = y_bottom_left - y_top_left
+
+                    # Calculate angle in radians
+                    # The angle is calculated from the top edge of the bounding box
+                    # atan2(dy, dx) gives the angle of the vector from top-left to top-right
+                    dx = x_top_right - x_top_left
+                    dy = y_top_right - y_top_left
+                    angle = np.arctan2(dy, dx)
 
                     # Normalize to YOLO format [0, 1]
                     x_center /= width
@@ -530,12 +546,18 @@ class YOLOShapefileConverter:
                     box_width /= width
                     box_height /= height
 
-                    arr = [x_center, y_center, box_width, box_height]
+                    arr = [x_center, y_center, box_width, box_height, angle]
 
                 # Skip if any coordinate is out of bounds
-                if not all(0.0 <= v <= 1.0 for v in arr):
-                    print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
-                    continue
+                # For OBB, check only the first 4 values (center and dimensions), angle can be any value
+                if database_model == YoloDatasetModel.OBB:
+                    if not all(0.0 <= v <= 1.0 for v in arr[:4]):
+                        print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
+                        continue
+                else:
+                    if not all(0.0 <= v <= 1.0 for v in arr):
+                        print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
+                        continue
 
                 coords = ' '.join([f"{v:.6f}" for v in arr])
                 f.write(f"{class_id} {coords}\n")
@@ -719,4 +741,3 @@ if __name__ == "__main__":
     # for res in results:
         # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
         # print(f" - {num_ann}")
-
