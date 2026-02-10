@@ -442,19 +442,19 @@ def process_images():
     #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
     #         proc.recreate_original_rgb_image(proc.output_path / img, dir)
 
-    dir = OUTPUT_DIR / "nir"
-    if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
-            proc.separate_band(proc.output_path / img, dir, Bands.NIR, Alignment.MATCH_TEMPLATE)
-    else:
-        print("NIR band separation skipped; output directory already exists.")
+    # dir = OUTPUT_DIR / "nir"
+    # if not dir.exists():
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
+    #         proc.separate_band(proc.output_path / img, dir, Bands.NIR, Alignment.MATCH_TEMPLATE)
+    # else:
+    #     print("NIR band separation skipped; output directory already exists.")
 
-    dir = OUTPUT_DIR / "extended_red"
-    if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
-            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
-    else:
-        print("EXTENDED_RED band separation skipped; output directory already exists.")
+    # dir = OUTPUT_DIR / "extended_red"
+    # if not dir.exists():
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
+    #         proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
+    # else:
+    #     print("EXTENDED_RED band separation skipped; output directory already exists.")
 
     # dir = OUTPUT_DIR / "extended_green"
     # if not dir.exists():
@@ -463,19 +463,19 @@ def process_images():
     # else:
     #     print("EXTENDED_GREEN band separation skipped; output directory already exists.")
 
-    dir = OUTPUT_DIR / "rededge"
-    if not dir.exists():
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating REDEDGE bands from image tiles"):
-            proc.separate_band(proc.output_path / img, dir, Bands.REDEDGE, Alignment.MATCH_TEMPLATE)
-    else:
-        print("REDEDGE band separation skipped; output directory already exists.")
+    # dir = OUTPUT_DIR / "rededge"
+    # if not dir.exists():
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating REDEDGE bands from image tiles"):
+    #         proc.separate_band(proc.output_path / img, dir, Bands.REDEDGE, Alignment.MATCH_TEMPLATE)
+    # else:
+    #     print("REDEDGE band separation skipped; output directory already exists.")
 
-    dir: Path = OUTPUT_DIR / "image_tiles_indeces"
-    if recalculate:
-        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-            proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
-    else:
-        print("Index calculation skipped; output directory already exists.")
+    # dir: Path = OUTPUT_DIR / "image_tiles_indeces"
+    # if recalculate:
+    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
+    #         proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
+    # else:
+    #     print("Index calculation skipped; output directory already exists.")
 
 
     # ##############################
@@ -547,30 +547,30 @@ def process_images():
     # Create 3-band image NEN from NGRDI, Extended Red and NIR #
     ############################################################
 
-    dir = OUTPUT_DIR / "NEN_images"
-    if not dir.exists():
-        proc.set_input_path(OUTPUT_DIR / "image_tiles")
-        # proc.set_mask_path(MASK_DIR / "NEN_MASKS")
+    # dir = OUTPUT_DIR / "NEN_images"
+    # if not dir.exists():
+    #     proc.set_input_path(OUTPUT_DIR / "image_tiles")
+    #     # proc.set_mask_path(MASK_DIR / "NEN_MASKS")
 
-        for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
-            img_name_ngrdi = img_name.replace(".tif", "_ngrdi.tif")
-            img_name_nir = img_name.replace(".tif", "_NIR.tif")
-            img_name_er = img_name.replace(".tif", "_EXTEND_RED.tif")
+    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
+    #         img_name_ngrdi = img_name.replace(".tif", "_ngrdi.tif")
+    #         img_name_nir = img_name.replace(".tif", "_NIR.tif")
+    #         img_name_er = img_name.replace(".tif", "_EXTEND_RED.tif")
 
-            proc.calculate_nen_image(
-                input_paths = NENInputBands(
-                    ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "NGRDI" / img_name_ngrdi,
-                    extended_red_path=OUTPUT_DIR / "extended_red" / img_name_er,
-                    nir_path=OUTPUT_DIR / "nir" / img_name_nir,
-                ),
-                output_path=dir
-            )
+    #         proc.calculate_nen_image(
+    #             input_paths = NENInputBands(
+    #                 ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "NGRDI" / img_name_ngrdi,
+    #                 extended_red_path=OUTPUT_DIR / "extended_red" / img_name_er,
+    #                 nir_path=OUTPUT_DIR / "nir" / img_name_nir,
+    #             ),
+    #             output_path=dir
+    #         )
 
-        # for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
-        #     proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
+    #     # for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
+    #     #     proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
 
-    else:
-        print("NEN image creation skipped; output directory already exists.")
+    # else:
+    #     print("NEN image creation skipped; output directory already exists.")
 
 
 

@@ -435,10 +435,10 @@ class YOLOShapefileConverter:
             height = src.height
 
             tags = src.tags()
-            original_x_min = float(tags.get('ORIGINAL_X_MIN'))
-            original_y_min = float(tags.get('ORIGINAL_Y_MIN'))
-            original_x_max = float(tags.get('ORIGINAL_X_MAX'))
-            original_y_max = float(tags.get('ORIGINAL_Y_MAX'))
+            original_x_min = float(tags.get('ORIGINAL_X_MIN', src.bounds.left))
+            original_y_min = float(tags.get('ORIGINAL_Y_MIN', src.bounds.bottom))
+            original_x_max = float(tags.get('ORIGINAL_X_MAX', src.bounds.right))
+            original_y_max = float(tags.get('ORIGINAL_Y_MAX', src.bounds.top))
             angle = float(tags.get('ROTATION_ANGLE', 0))
 
             original_polygon = box(original_x_min, original_y_min, original_x_max, original_y_max)
@@ -760,9 +760,9 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
-    reference_tif_dir = home / "SDU/MasterThesis/Orthomosaics/example_tiles_45r"
-    output_labels_dir = home / "SDU/MasterThesis/AI/test_rotated"
+    shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/mid_field/BV_F2_mid.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/labels_txt"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
