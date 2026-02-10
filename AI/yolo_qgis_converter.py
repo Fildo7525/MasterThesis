@@ -7,11 +7,11 @@ Dependencies:
 pip install rasterio geopandas shapely fiona pyproj
 """
 
-import affine
 from shapely.geometry.base import BaseGeometry
 from enum import IntEnum
 from pathlib import Path
-from shapely.geometry import Polygon, box
+from shapely.affinity import rotate
+from shapely.geometry import Polygon, box, Point
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from typing import List, Optional
@@ -19,7 +19,6 @@ import geopandas as gpd
 import rasterio
 from tqdm import tqdm
 import numpy as np
-import subprocess
 
 class YoloDatasetModel(IntEnum):
     OBB = 0
@@ -434,13 +433,19 @@ class YOLOShapefileConverter:
             crs = src.crs
             width = src.width
             height = src.height
-            bounds = src.bounds
-            espg = ":".join(list(src.crs.to_authority()))
+
+            tags = src.tags()
+            original_x_min = float(tags.get('ORIGINAL_X_MIN'))
+            original_y_min = float(tags.get('ORIGINAL_Y_MIN'))
+            original_x_max = float(tags.get('ORIGINAL_X_MAX'))
+            original_y_max = float(tags.get('ORIGINAL_Y_MAX'))
+            angle = float(tags.get('ROTATION_ANGLE', 0))
+
+            original_polygon = box(original_x_min, original_y_min, original_x_max, original_y_max)
+            rotated_polygon = rotate(original_polygon, angle=angle, origin='center')
 
         # Read shapefile
         gdf = gpd.read_file(shapefile_path)
-
-        gdf = gdf.affine_transform(transform[:-3])
 
         # Ensure CRS matches
         if gdf.crs != crs:
@@ -448,7 +453,7 @@ class YOLOShapefileConverter:
             gdf = gdf.to_crs(crs)
 
         # Create geographic bounding box for cutout
-        cutout_bbox = box(bounds.left, bounds.bottom, bounds.right, bounds.top)
+        cutout_bbox = rotated_polygon
 
         # OPTIMIZED: Use spatial index to find only intersecting polygons
         if len(gdf) > 0:
@@ -462,7 +467,7 @@ class YOLOShapefileConverter:
             intersecting = gdf[gdf.intersects(cutout_bbox)]
 
         if len(intersecting) == 0:
-            # print(f"Warning: No annotations intersect with {reference_tif_file}")
+            print(f"Warning: No annotations intersect with {reference_tif_file}")
             # Create empty label file
             output_path = Path(output_yolo_label)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -484,6 +489,7 @@ class YOLOShapefileConverter:
                 width = maxx - minx
                 height = maxy - miny
                 if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
+                    print(f"Warning: Skipping {output_yolo_label} annotation with invalid geometry or area: {clipped.geom_type}")
                     continue
 
                 # Transform inverse: geo coords to pixel coords
@@ -495,7 +501,14 @@ class YOLOShapefileConverter:
                 arr = []
 
                 if database_model == YoloDatasetModel.SEGMENTATION:
-                     # Extract actual polygon coordinates for segmentation
+                    # If the image is rotated, we need to rotate the shapes to the same angle before converting to pixel
+                    # coordinates
+                    if angle != 0:
+                        original_polygon_center = original_polygon.centroid
+                        clipped = rotate(clipped, angle=angle, origin=original_polygon_center)
+                        # print(f"Pionts: {[Point(x, y) for x, y in coords]}")
+
+                    # Extract actual polygon coordinates for segmentation
                     # Handle different geometry types
                     if clipped.geom_type == 'Polygon':
                         coords = list(clipped.exterior.coords)
@@ -505,41 +518,28 @@ class YOLOShapefileConverter:
                         coords = list(largest_poly.exterior.coords)
                     else:
                         # Skip unsupported geometry types
+                        print(f"Warning: Unsupported geometry type {clipped.geom_type}, skipping.")
                         continue
+
 
                     # Remove duplicate last coordinate if it exists (closed polygon)
                     if len(coords) > 1 and coords[0] == coords[-1]:
                         coords = coords[:-1]
-
-                    # Get the bounds of the tile in geographic coordinates
-                    tile_bounds = bounds  # (left, bottom, right, top)
-                    tmp_shp_file = output_path.with_suffix('.tmp.shp')
-
-
-                    angle = 45
-                    tile_center_x = (tile_bounds.left + tile_bounds.right) / 2
-                    tile_center_y = (tile_bounds.top + tile_bounds.bottom) / 2
-
-                    subprocess.run([
-                        "qgis_process",
-                        "run native:rotatefeatures",
-                        "--distance_units=meters",
-                        "--area_units=m2",
-                        "--ellipsoid=EPSG:7019",
-                        f"--INPUT='{shapefile_path}'",
-                        f"--ANGLE={angle}",
-                        f"--ANCHOR='{tile_center_x},{tile_center_y} [{espg}]'",
-                        f"--OUTPUT={tmp_shp_file}"
-                    ])
 
                     # Convert geographic coordinates to normalized [0,\n 1] coordinates
                     pixel_coords = []
                     for geo_x, geo_y in coords:
                         # Normalize based on tile bounds
                         # X: from left to right edge of tile
-                        norm_x = (geo_x - tile_bounds.left) / (tile_bounds.right - tile_bounds.left)
+                        # original_x_min = tags.get('ORIGINAL_X_MIN')
+                        # original_y_min = tags.get('ORIGINAL_Y_MIN')
+                        # original_x_max = tags.get('ORIGINAL_X_MAX')
+                        # original_y_max = tags.get('ORIGINAL_Y_MAX')
+                        # norm_x = (geo_x - bounds.left) / (bounds.right - bounds.left)
+                        norm_x = (geo_x - original_x_min) / (original_x_max - original_x_min)
                         # Y: from top to bottom edge of tile (note: image Y is inverted)
-                        norm_y = (tile_bounds.top - geo_y) / (tile_bounds.top - tile_bounds.bottom)
+                        # norm_y = (bounds.top - geo_y) / (bounds.top - bounds.bottom)
+                        norm_y = (original_y_max - geo_y) / (original_y_max - original_y_min)
 
                         # Clamp to [0, 1] to handle any floating point issues
                         norm_x = max(0.0, min(1.0, norm_x))
@@ -548,6 +548,12 @@ class YOLOShapefileConverter:
                         pixel_coords.extend([norm_x, norm_y])
 
                     arr = pixel_coords
+
+                    if len(arr) != 8:
+                        print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
+                        continue
+
+                    print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
 
                 elif database_model == YoloDatasetModel.OBB:
                     # For OBB, use the bounding box of the clipped geometry
@@ -581,14 +587,10 @@ class YOLOShapefileConverter:
 
                 # Skip if any coordinate is out of bounds
                 # For OBB, check only the first 4 values (center and dimensions), angle can be any value
-                if database_model == YoloDatasetModel.OBB:
-                    if not all(0.0 <= v <= 1.0 for v in arr[:4]):
-                        print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
-                        continue
-                else:
-                    if not all(0.0 <= v <= 1.0 for v in arr):
-                        print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
-                        continue
+                array = arr[:4] if database_model == YoloDatasetModel.OBB else arr
+                if not all(0.0 <= v <= 1.0 for v in array):
+                    print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
+                    continue
 
                 coords = ' '.join([f"{v:.6f}" for v in arr])
                 f.write(f"{class_id} {coords}\n")
@@ -758,9 +760,9 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = home / "test/MasterThesis/Orthomosaics/shape_files/BV_F2_small_45.shp"
-    reference_tif_dir = home / "test/MasterThesis/Orthomosaics/rotated/processed_output/image_tiles"
-    output_labels_dir = home / "test/MasterThesis/Orthomosaics/rotated/labels"
+    shapefile_path = home / "SDU/MasterThesis/OpenCV/shapefiles/BV_TF2_small.shp"
+    reference_tif_dir = home / "SDU/MasterThesis/Orthomosaics/example_tiles_45r"
+    output_labels_dir = home / "SDU/MasterThesis/AI/test_rotated"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
