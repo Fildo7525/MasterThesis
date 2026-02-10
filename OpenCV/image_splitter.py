@@ -56,7 +56,7 @@ def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, p
     tile_profile.update({
         "height": h,
         "width": w,
-        "transform": rotated_transform
+        "transform": rotated_transform,
     })
 
     names = [band.name for band in Bands]
@@ -69,8 +69,14 @@ def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, p
     bands = process_window(src.read(window=window), i, j)
 
     # Read the window and write it out
-    i = 0
     with rasterio.open(out_path, "w", **tile_profile) as dst:
+        if angle == 0.0:
+            dst.write(bands)
+            # for idx, name in enumerate(names, start=1):
+            #     print(f"Setting band {idx} description to {name}")
+            #     dst.set_band_description(idx, name)
+            # return
+
         for band in range(1, src.count + 1):
             reproject(
                 source=rasterio.band(src, band),
@@ -82,6 +88,15 @@ def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, p
                 src_window=window,
                 resampling=Resampling.bilinear
             )
+
+        x_min, y_min, x_max, y_max = src.window_bounds(window)
+        dst.update_tags(
+            ORIGINAL_X_MIN=x_min,
+            ORIGINAL_Y_MIN=y_min,
+            ORIGINAL_X_MAX=x_max,
+            ORIGINAL_Y_MAX=y_max,
+            ROTATION_ANGLE=angle,
+        )
 
 
 def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0, process_window=lambda x, i, j: x):
@@ -139,13 +154,19 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
 if __name__ == "__main__":
     # Example usage
     tile_size = 1024
-    overlap = 100
+    overlap = 0
     angle = 45.0  # degrees
 
-    print(os.listdir(ORTHO_IMG_DIR))
+    orthomosaic = ORTHO_IMG_DIR / "20250827_Bjørnkjærvej_TestFlight_2_small.tif"
+    output_dir = ORTHO_IMG_DIR / "example_tiles_45r"
 
-    output_dir = ORTHO_IMG_DIR / "example_tiles"
-    split_geotiff(ORTHO_IMG_DIR / "small" / "20250827_Bjørnkjærvej_TestFlight_2_small.tif", output_dir, tile_size, overlap, 45.0)
+    split_geotiff(
+        input_tif = orthomosaic,
+        output_dir = output_dir,
+        tile_size = tile_size,
+        overlap = overlap,
+        angle = angle,
+    )
     # for img in ORTHO_IMG_DIR.glob("*.tif"):
     #     output_dir = ORTHO_IMG_DIR / f"{img.stem}_tiles"
     #     split_geotiff(img, output_dir, tile_size, overlap)
