@@ -489,6 +489,7 @@ class YOLOShapefileConverter:
                 width = maxx - minx
                 height = maxy - miny
 
+                # Check if the clipped is fully inside the original_polygon boundries
                 if not geom.within(original_polygon):
                     print(f"Warning: Skipping annotation that is not fully within original tile bounds: {clipped.bounds}")
                     continue
