@@ -1,8 +1,9 @@
 {
 	"recalculate": true,
 	"input_path": "/home/samuel/test/MasterThesis/Orthomosaics",
-	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/translated/small/test/processed_output",
-	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/translated/small/test/masks",
+	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output",
+	"labels_path": "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/labels_txt",
+	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/masks",
 	"CIG": true,
 	"CIRE": true,
 	"CIVE": true,

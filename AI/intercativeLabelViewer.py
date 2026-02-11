@@ -10,13 +10,14 @@ from matplotlib.patches import Polygon, Rectangle
 from matplotlib.widgets import Button, RadioButtons
 from matplotlib.patches import FancyBboxPatch
 import matplotlib.patches as mpatches
+import os
 
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/image_tiles"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/labels_txt"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/nir"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output/image_tiles"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/labels_txt"
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output/nir"
 
 # Create output directory if it doesn't exist
 Path(nir_output_dir).mkdir(parents=True, exist_ok=True)
@@ -68,6 +69,9 @@ class InteractiveBBoxViewer:
         ax_save = plt.axes([0.36, 0.05, 0.1, 0.05])
         ax_reset = plt.axes([0.47, 0.05, 0.08, 0.05])
         ax_cancel = plt.axes([0.56, 0.05, 0.08, 0.05])
+
+        ax_delete_entry = plt.axes([0.85, 0.05, 0.1, 0.05])
+
         ax_class_up = plt.axes([0.87, 0.50, 0.05, 0.04])
         ax_class_down = plt.axes([0.93, 0.50, 0.05, 0.04])
         ax_angle_up = plt.axes([0.87, 0.45, 0.05, 0.04])
@@ -79,6 +83,9 @@ class InteractiveBBoxViewer:
         self.btn_save = Button(ax_save, 'Save Changes')
         self.btn_reset = Button(ax_reset, 'Reset')
         self.btn_cancel = Button(ax_cancel, 'Cancel')
+
+        self.btn_delete_entry = Button(ax_delete_entry, 'Delete Entry')
+
         self.btn_class_up = Button(ax_class_up, '+')
         self.btn_class_down = Button(ax_class_down, '-')
         self.btn_angle_up = Button(ax_angle_up, '+')
@@ -94,6 +101,7 @@ class InteractiveBBoxViewer:
         self.btn_class_down.on_clicked(self.decrement_class)
         self.btn_angle_up.on_clicked(self.increment_angle)
         self.btn_angle_down.on_clicked(self.decrement_angle)
+        self.btn_delete_entry.on_clicked(self.delete_selected_entry)
         
         # Initially hide angle controls
         self.btn_angle_up.ax.set_visible(False)
@@ -111,6 +119,18 @@ class InteractiveBBoxViewer:
         self.load_image(0)
         
         plt.show()
+
+    def delete_selected_entry(self, event):
+        os.remove(f"{self.label_dir}/{Path(self.tif_files[self.current_idx]).stem}.txt")
+        os.remove(f"{self.image_dir}/{Path(self.tif_files[self.current_idx]).stem}.tif")
+        os.remove(f"{self.nir_output_dir}/{Path(self.tif_files[self.current_idx]).stem}_NIR.png")
+
+        # load next image after deletion
+        if self.current_idx >= len(self.tif_files) - 1:
+            self.load_image(0)
+        else:
+            self.load_image(self.current_idx + 1)
+        
     
     def change_mode(self, label):
         """Switch between select and draw modes"""

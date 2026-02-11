@@ -431,6 +431,9 @@ def process_images():
         mask_path=MASK_DIR
     )
 
+    labels_path = HOME_DIR / config.get("labels_path", "")
+    os.makedirs(labels_path, exist_ok=True)
+
     # Split image into tiles
     proc.split_image(TILE_SIZE, TILE_ANGLE, TILE_OFFSET)
 

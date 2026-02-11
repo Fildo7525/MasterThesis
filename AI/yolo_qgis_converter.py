@@ -767,8 +767,8 @@ if __name__ == "__main__":
     # )
 
     shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/small_field/BV_F2_small.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/labels_txt"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/labels_txt"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
