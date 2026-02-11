@@ -20,8 +20,9 @@ MASK_DIR = Path()
 
 KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
-TILE_SIZE = 1024
-TILE_ANGLE = 45 # degrees
+TILE_SIZE = 1024 # pixels; actual tile size will be smaller at borders due to edge handling in split_geotiff
+TILE_ANGLE = 0 # degrees
+TILE_OFFSET = (250, 250) # pixels
 # ---------------------------------------------------------------------
 
 @dataclass
@@ -179,11 +180,11 @@ class ImageProcessor:
             cv.imwrite(str(out) , img)
 
     # --- Image Splitting ---
-    def split_image(self, tile_size: int = 1024, tile_angle: float = 0):
+    def split_image(self, tile_size: int = 1024, tile_angle: float = 0, tile_offset: tuple = (0, 0)):
         try:
             if not self.output_path.exists():
                 print(f"Splitting {self.input_path} into tiles...")
-                split_geotiff(self.input_path, self.output_path, tile_size, overlap=100, angle=tile_angle)
+                split_geotiff(self.input_path, self.output_path, tile_size, overlap=100, angle=tile_angle, offset=tile_offset)
             else:
                 print(f"Output directory {self.output_path} already exists. Skipping splitting.")
         except Exception as e:
@@ -431,7 +432,7 @@ def process_images():
     )
 
     # Split image into tiles
-    proc.split_image(TILE_SIZE, TILE_ANGLE)
+    proc.split_image(TILE_SIZE, TILE_ANGLE, TILE_OFFSET)
 
     # ###############################
     # # Generate indices (optional) #

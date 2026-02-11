@@ -14,10 +14,10 @@ from affine import Affine
 
 ORTHO_IMG_DIR = Path("../Orthomosaics/")
 
-def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, process_window=lambda x, i, j: x):
+def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, offset: tuple = (0, 0), process_window=lambda x, i, j: x):
     # Define pixel offsets
-    x_off: float = j * tile_size - j * overlap
-    y_off: float = i * tile_size - i * overlap
+    x_off: float = j * tile_size - j * overlap + offset[0]
+    y_off: float = i * tile_size - i * overlap + offset[1]
     width: float = src.width
     height: float = src.height
 
@@ -99,7 +99,7 @@ def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, p
         )
 
 
-def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0, process_window=lambda x, i, j: x):
+def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0, offset: tuple = (0, 0), process_window=lambda x, i, j: x):
     """
     Splits a multispectral GeoTIFF into square tiles with optional overlap.
 
@@ -138,6 +138,8 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
         print(f"Tile size: {tile_size} px")
         print(f"Overlap: {overlap} px")
         print(f"angle: {angle} degrees")
+        print(f"Offset x: {offset[0]} px")
+        print(f"Offset y: {offset[1]} px")
         print(f"Splitting into {n_cols} x {n_rows} tiles")
 
         # Loop through tiles
@@ -145,7 +147,7 @@ def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: in
         with tqdm(total=total_tiles, desc=f"Processing {input_tif.name}", unit="tile") as pbar:
             for i in range(n_rows):
                 for j in range(n_cols):
-                    process_tile(src, i, j, tile_size, output_dir, overlap, angle, process_window)
+                    process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset,process_window)
                     pbar.update(1)
 
     print("✅ Done splitting GeoTIFF!")
