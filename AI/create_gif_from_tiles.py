@@ -10,10 +10,10 @@ import io
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/image_tiles/"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/labels_txt/"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/nir/"
-gif_output_path = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/tiles_with_labels.gif"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/image_tiles"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/labels_txt"
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/nir"
+gif_output_path = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/tiles_with_labels.gif"
 
 # Create output directory if it doesn't exist
 Path(nir_output_dir).mkdir(parents=True, exist_ok=True)
@@ -38,9 +38,9 @@ for idx, image_path in enumerate(tif_files):
     # ------------------------------
     try:
         with rasterio.open(image_path) as src:
-            img = src.read([1, 2, 3])
+            img = src.read([7])
             img = np.transpose(img, (1, 2, 0))
-            cv2.imwrite(nir_png_path, img)
+            cv2.imwrite(nir_png_path, (img / img.max() * 255).astype(np.uint8))
     except Exception as e:
         print(f"Error reading {image_path}: {e}")
         continue

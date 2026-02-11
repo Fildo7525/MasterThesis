@@ -1,7 +1,7 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 
-gif_path = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/tiles_with_labels.gif"
+gif_path = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/tiles_with_labels.gif"
 
 class GIFPlayer:
     def __init__(self, root, gif_path):

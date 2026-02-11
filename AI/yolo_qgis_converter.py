@@ -488,6 +488,11 @@ class YOLOShapefileConverter:
                 minx, miny, maxx, maxy = clipped.bounds
                 width = maxx - minx
                 height = maxy - miny
+
+                if not geom.within(original_polygon):
+                    print(f"Warning: Skipping annotation that is not fully within original tile bounds: {clipped.bounds}")
+                    continue
+
                 if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
                     print(f"Warning: Skipping {output_yolo_label} annotation with invalid geometry or area: {clipped.geom_type}")
                     continue
@@ -760,9 +765,9 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/mid_field/BV_F2_mid.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/translated/mid/translated_8x_8y/labels_txt"
+    shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/small_field/BV_F2_small.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/labels_txt"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
