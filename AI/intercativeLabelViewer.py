@@ -275,7 +275,7 @@ class InteractiveBBoxViewer:
                     
                     # Create polygon patch
                     poly = Polygon(pts, closed=True, fill=False, 
-                                 edgecolor='green', linewidth=2, picker=True)
+                                 edgecolor='red', linewidth=2, picker=True)
                     self.ax.add_patch(poly)
                     
                     # Store bbox data
@@ -307,10 +307,10 @@ class InteractiveBBoxViewer:
                     
                     # Update appearance
                     if self.bboxes[i][2]:  # Now selected
-                        poly.set_edgecolor('red')
+                        poly.set_edgecolor('blue')
                         poly.set_linewidth(3)
                     else:  # Now deselected
-                        poly.set_edgecolor('green')
+                        poly.set_edgecolor('red')
                         poly.set_linewidth(2)
                     
                     self.fig.canvas.draw()
@@ -405,7 +405,7 @@ class InteractiveBBoxViewer:
         
         # Create the polygon patch
         poly = Polygon(pts, closed=True, fill=False,
-                      edgecolor='green', linewidth=2, picker=True)
+                      edgecolor='red', linewidth=2, picker=True)
         self.ax.add_patch(poly)
         
         # Create label line
