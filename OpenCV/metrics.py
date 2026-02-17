@@ -67,7 +67,7 @@ class ConfusionMatrix:
         print("="*50 + "\n")
 
 
-    def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = False):
+    def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = True):
 
         matrix = np.array([[self.tp, self.fp],
                            [self.fn, self.tn]])
@@ -94,6 +94,28 @@ class ConfusionMatrix:
 
 
 class Metrics:
+
+    def __convert_obb_to_segmentation(self, obb):
+        """Convert Oriented Bounding Box (OBB) to segmentation format."""
+        x_center, y_center, width, height, angle = obb
+        angle_rad = np.radians(angle)
+
+        # Calculate the corners of the OBB
+        cos_a = np.cos(angle_rad)
+        sin_a = np.sin(angle_rad)
+
+        dx = width / 2
+        dy = height / 2
+
+        corners = [
+            x_center + cos_a * dx - sin_a * dy, y_center + sin_a * dx + cos_a * dy,  # top-right
+            x_center - cos_a * dx - sin_a * dy, y_center - sin_a * dx + cos_a * dy,  # top-left
+            x_center - cos_a * dx + sin_a * dy, y_center - sin_a * dx - cos_a * dy,  # bottom-left
+            x_center + cos_a * dx + sin_a * dy, y_center + sin_a * dx - cos_a * dy   # bottom-right
+        ]
+
+        return corners
+
     def __parse_yolo_annotation(self, file_path):
         """Parse YOLOv12 annotation file and return list of bounding boxes."""
         boxes = []
@@ -106,22 +128,52 @@ class Metrics:
                 if not line:
                     continue
                 parts = line.split()
-                if len(parts) >= 5:
-                    x_center, y_center, width, height = map(float, parts[1:5])
-                    boxes.append((x_center, y_center, width, height))
+
+                if len(parts) == 5:
+                    x1, y1, x2, y2, x3, y3, x4, y4 = self.__convert_obb_to_segmentation(map(float, parts[1:5]))
+
+                else:
+                    x1, y1, x2, y2, x3, y3, x4, y4 = map(float, parts[1:])
+
+                print(f"Parsed box from {file_path}: ({x1:.4f}, {y1:.4f}), ({x2:.4f}, {y2:.4f}), ({x3:.4f}, {y3:.4f}), ({x4:.4f}, {y4:.4f})")
+
+                boxes.append((x1, y1, x2, y2, x3, y3, x4, y4))
+
         return boxes
 
 
     def __calculate_iou(self, box1, box2):
         """Calculate IoU between two boxes in YOLO format."""
-        x1, y1, w1, h1 = box1
-        x2, y2, w2, h2 = box2
 
-        # Convert to corner coordinates
-        box1_x1, box1_y1 = x1 - w1/2, y1 - h1/2
-        box1_x2, box1_y2 = x1 + w1/2, y1 + h1/2
-        box2_x1, box2_y1 = x2 - w2/2, y2 - h2/2
-        box2_x2, box2_y2 = x2 + w2/2, y2 + h2/2
+        # In case the box is in format (x_center, y_center, width, height)
+        if len(box1) == 4 and len(box2) == 4:
+            x1, y1, w1, h1 = box1
+            x2, y2, w2, h2 = box2
+
+            # Convert to corner coordinates
+            box1_x1, box1_y1 = x1 - w1/2, y1 - h1/2
+            box1_x2, box1_y2 = x1 + w1/2, y1 + h1/2
+            box2_x1, box2_y1 = x2 - w2/2, y2 - h2/2
+            box2_x2, box2_y2 = x2 + w2/2, y2 + h2/2
+
+        # In case the box is in format (x1, y1, x2, y2, x3, y3, x4, y4) - segmentation format
+        else:
+            print(f"Calculating IoU for segmentation format boxes: {box1} vs {box2}")
+            xs = box1[0::2]  # x1, x3, x5, x7
+            ys = box1[1::2]  # y1, y3, y5, y7
+            box1_x1, box1_y1 = min(xs), min(ys)
+            box1_x2, box1_y2 = max(xs), max(ys)
+
+            xs = box2[0::2]
+            ys = box2[1::2]
+            box2_x1, box2_y1 = min(xs), min(ys)
+            box2_x2, box2_y2 = max(xs), max(ys)
+
+            w1 = box1_x2 - box1_x1
+            h1 = box1_y2 - box1_y1
+
+            w2 = box2_x2 - box2_x1
+            h2 = box2_y2 - box2_y1
 
         # Calculate intersection
         inter_x1 = max(box1_x1, box2_x1)
@@ -130,14 +182,16 @@ class Metrics:
         inter_y2 = min(box1_y2, box2_y2)
 
         if inter_x2 < inter_x1 or inter_y2 < inter_y1:
+            print(f"No intersection between boxes: {box1} vs {box2}")
             return 0.0
 
-        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+        intersection_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
         box1_area = w1 * h1
         box2_area = w2 * h2
-        union_area = box1_area + box2_area - inter_area
+        union_area = box1_area + box2_area - intersection_area
 
-        iou = inter_area / union_area if union_area > 0 else 0.0
+        iou = intersection_area / union_area if union_area > 0 else 0.0
+        print(f"Box1: ({box1_x1:.4f}, {box1_y1:.4f}), ({box1_x2:.4f}, {box1_y2:.4f}), Area: {box1_area:.4f}")
         # print(f"Iou = overlap / union => {iou:.4f} = {inter_area:.4f} / {union_area:.4f}")
 
         return iou
@@ -191,7 +245,8 @@ class Metrics:
             pred_boxes = self.__parse_yolo_annotation(pred_files.get(image_name))
 
             if len(gt_boxes) == 0 and len(pred_boxes) == 0:
-                total.tn += 1
+                # total.tn += 1
+                continue
             else:
                 tp, fp, fn = self.__match_boxes(gt_boxes, pred_boxes, iou_threshold)
                 total.tp += tp
@@ -261,14 +316,14 @@ class Metrics:
             shapefile_path = gt_shp,
             cutouts_dir = reference_tif_dir,
             output_labels_dir = gt_labels_dir,
-            database_model=YoloDatasetModel.OBB
+            database_model=YoloDatasetModel.SEGMENTATION
         )
 
         converter.shapefile_to_yolo_cutouts(
             shapefile_path = pred_shp,
             cutouts_dir = reference_tif_dir,
             output_labels_dir = pred_labels_dir,
-            database_model=YoloDatasetModel.OBB
+            database_model=YoloDatasetModel.SEGMENTATION
         )
 
         results = self.compute_confusion_matrix(gt_labels_dir, pred_labels_dir, iou_threshold)
