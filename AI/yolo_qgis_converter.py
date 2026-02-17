@@ -552,7 +552,9 @@ class YOLOShapefileConverter:
 
                         pixel_coords.extend([norm_x, norm_y])
 
-                    arr = pixel_coords
+                    # Shapely orders elements couter-clockwise but YOLO expects them in clockwise order, so we need to reorder the coordinates
+                    order = [0, 1, 6, 7, 4, 5, 2, 3]
+                    arr = [pixel_coords[i] for i in order]
 
                     if len(arr) != 8:
                         print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
