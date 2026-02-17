@@ -452,19 +452,16 @@ class YOLOShapefileConverter:
             print(f"Reprojecting shapefile from {gdf.crs} to {crs}")
             gdf = gdf.to_crs(crs)
 
-        # Create geographic bounding box for cutout
-        cutout_bbox = rotated_polygon
-
         # OPTIMIZED: Use spatial index to find only intersecting polygons
         if len(gdf) > 0:
             spatial_index = STRtree(gdf.geometry.values)
-            candidate_indices = spatial_index.query(cutout_bbox)
+            candidate_indices = spatial_index.query(rotated_polygon)
 
             # Filter to only geometries that actually intersect
             gdf_filtered = gdf.iloc[candidate_indices]
-            intersecting = gdf_filtered[gdf_filtered.intersects(cutout_bbox)]
+            intersecting = gdf_filtered[gdf_filtered.intersects(rotated_polygon)]
         else:
-            intersecting = gdf[gdf.intersects(cutout_bbox)]
+            intersecting = gdf[gdf.intersects(rotated_polygon)]
 
         if len(intersecting) == 0:
             print(f"Warning: No annotations intersect with {reference_tif_file}")
@@ -487,8 +484,9 @@ class YOLOShapefileConverter:
                 if not geom.within(rotated_polygon):
                     print(f"Warning: Skipping annotation that is not fully within original tile bounds: {rotated_polygon}")
                     continue
+
                 # Clip to cutout bounds
-                clipped = geom.intersection(cutout_bbox)
+                clipped = geom.intersection(rotated_polygon)
                 minx, miny, maxx, maxy = clipped.bounds
                 width = maxx - minx
                 height = maxy - miny
