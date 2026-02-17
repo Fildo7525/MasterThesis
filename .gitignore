@@ -46,3 +46,8 @@ OpenCV/thresholded_cutouts_1
 OpenCV/thresholded_cutouts_done
 OpenCV/tmp
 *.qgz
+/OpenCV/output_BV_TF2_NRN_big_001
+/OpenCV/features/__pycache__
+/OpenCV/output_BV_TF2_NRN_mid_001
+/OpenCV/output_BV_TF2_NRN_small_001
+/OpenCV/output_BV_TF2_small_CDC/pred
