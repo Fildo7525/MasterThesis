@@ -483,16 +483,15 @@ class YOLOShapefileConverter:
             for _, row in intersecting.iterrows():
                 geom = row.geometry
 
+                # Check if the clipped is fully inside the original_polygon boundries
+                if not geom.within(rotated_polygon):
+                    print(f"Warning: Skipping annotation that is not fully within original tile bounds: {rotated_polygon}")
+                    continue
                 # Clip to cutout bounds
                 clipped = geom.intersection(cutout_bbox)
                 minx, miny, maxx, maxy = clipped.bounds
                 width = maxx - minx
                 height = maxy - miny
-
-                # Check if the clipped is fully inside the original_polygon boundries
-                if not geom.within(original_polygon):
-                    print(f"Warning: Skipping annotation that is not fully within original tile bounds: {clipped.bounds}")
-                    continue
 
                 if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
                     print(f"Warning: Skipping {output_yolo_label} annotation with invalid geometry or area: {clipped.geom_type}")
