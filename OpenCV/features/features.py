@@ -1,8 +1,11 @@
 import numpy as np
 import rasterio
+from rasterio.io import DatasetReader
 from skimage.feature import graycoprops, graycomatrix
 from skimage.util import img_as_ubyte
 from tqdm import tqdm
+from pathlib import Path
+from typing import List, Any
 
 class FeatureExtractor:
     def __calculate_glcm_features(self, band_data, distances=[1], angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
@@ -38,11 +41,12 @@ class FeatureExtractor:
             # Calculate GLCM only on masked region
             # Extract bounding box to reduce computation
             if np.any(mask):
-                rows, cols = np.where(mask)
-                min_row, max_row = rows.min(), rows.max() + 1
-                min_col, max_col = cols.min(), cols.max() + 1
+                coords = np.argwhere(mask == 255)
+                y_min, x_min = coords.min(axis = 0)
+                y_max, x_max = coords.max(axis = 0)
 
-                cropped_data = band_data[min_row:max_row, min_col:max_col]
+                # print(f"Applying mask: bounding box rows {y_min}-{y_max}, cols {x_min}-{x_max}")
+                cropped_data = band_data[y_min:y_max+1, x_min:x_max+1]
                 # cropped_mask = mask[min_row:max_row, min_col:max_col]
 
                 # Use mask in GLCM calculation
@@ -72,13 +76,13 @@ class FeatureExtractor:
         return features
 
 
-    def process_multiband_tif(self, tif_path, band_indices=None, mask=None):
+    def process_multiband_tif(self, tif: Path | Any, band_indices: List[int] | None = None, mask: np.ndarray | None = None):
         """
         Process multi-band TIF image and calculate texture features.
 
         Parameters:
         -----------
-        tif_path : str
+        tif : Path or rasterio dataset
             Path to TIF file
         band_indices : list, optional
             List of band indices to process (0-based). If None, processes all bands
@@ -89,25 +93,36 @@ class FeatureExtractor:
         --------
         dict : Nested dictionary {band_idx: {feature_name: value}}
         """
-        with rasterio.open(tif_path) as src:
+        def process(src, band_indices=band_indices, mask=mask):
             # Determine which bands to process
             if band_indices is None:
-                band_indices = range(1, src.count + 1)  # rasterio uses 1-based indexing
+                if type(src) == DatasetReader:
+                    band_indices = range(1, src.count + 1)  # rasterio uses 1-based indexing
+                else:
+                    # the src is np.ndarray with shape (bands, rows, cols)
+                    band_indices = range(1, src.shape[0] + 1)  # Convert to 1-based
             else:
                 band_indices = [idx + 1 for idx in band_indices]  # Convert to 1-based
 
             results = {}
 
-            pbar = tqdm(band_indices, total=len(band_indices), unit="band")
-            descriptions = src.descriptions if src.descriptions else [f"Band {i}" for i in range(1, src.count + 1)]
-            for band_idx in pbar:
-                pbar.set_description(f"B{band_idx}: {descriptions[band_idx - 1]}")
-                band_data = src.read(band_idx)
+
+            for band_idx in band_indices:
+                if type(src) == DatasetReader:
+                    band_data = src.read(band_idx)
+                else:
+                    band_data = src[band_idx - 1]  # Convert to 0-based
 
                 features = self.__calculate_glcm_features(band_data, mask=mask)
                 results[f'band_{band_idx}'] = features
 
             return results
+
+        if type(tif) == Path or type(tif) == str:
+            with rasterio.open(tif) as src:
+                return process(src)
+        else:
+            return process(tif)
 
 
 
