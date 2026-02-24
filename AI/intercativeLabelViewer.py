@@ -7,7 +7,7 @@ import glob
 from PIL import Image
 import io
 from matplotlib.patches import Polygon, Rectangle
-from matplotlib.widgets import Button, RadioButtons
+from matplotlib.widgets import Button, RadioButtons, Slider
 from matplotlib.patches import FancyBboxPatch
 import matplotlib.patches as mpatches
 import os
@@ -15,10 +15,10 @@ import os
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/nir"
-predictions_dir = "/home/samuel/MasterThesis/runs/obb/inference/train_predictions/labels"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/original/original/processed_output/image_tiles"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/original/original/labels"
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/original/original/processed_output/nir"
+predictions_dir = "/home/samuel/MasterThesis/runs/obb/inference/val_predictions/labels"
 COMBINATION = "NIR_RED_NGRDI"
 
 # Create output directory if it doesn't exist
@@ -41,6 +41,7 @@ class InteractiveBBoxViewer:
         self.img = None
         self.h = 0
         self.w = 0
+        self.offset = 20  # pixels for label text offset from bbox  
         
         # Drawing state
         self.mode = 'select'  # 'select', 'draw_rect', or 'draw_rotated'
@@ -58,9 +59,15 @@ class InteractiveBBoxViewer:
         ax_radio = plt.axes([0.87, 0.65, 0.12, 0.2])
         self.radio = RadioButtons(ax_radio, ('Select Mode', 'Draw Rectangle', 'Draw Rotated Box'), active=0)
         self.radio.on_clicked(self.change_mode)
+
+        self.confidence_threshold_slider = plt.axes([0.87, 0.40, 0.10, 0.03])
+        self.confidence_slider = Slider(self.confidence_threshold_slider, 'Conf Thres', 0.0, 1.0, valinit=0.25, valstep=0.05)
+        self.confidence_slider.on_changed(self.update_prediction_visibility)
         
         # Create class input for drawing
         self.class_text = self.fig.text(0.87, 0.60, 'Class ID: 0', fontsize=10)
+
+        self.legend_text = self.fig.text(0.05, 0.12, '', fontsize=10, fontweight='bold')
 
         # Create legend showing number of images and current image number
         self.legend_text = self.fig.text(0.05, 0.12, '', fontsize=10, fontweight='bold')
@@ -82,6 +89,7 @@ class InteractiveBBoxViewer:
         ax_save         = plt.axes([0.45, 0.05, 0.08, 0.05])
         ax_reset        = plt.axes([0.54, 0.05, 0.07, 0.05])
         ax_cancel       = plt.axes([0.62, 0.05, 0.07, 0.05])
+        ax_accept_all_pred    = plt.axes([0.70, 0.05, 0.07, 0.05])  # ← NEW
 
         ax_delete_entry = plt.axes([0.85, 0.05, 0.10, 0.05])
 
@@ -98,6 +106,7 @@ class InteractiveBBoxViewer:
         self.btn_reset       = Button(ax_reset,       'Reset')
         self.btn_cancel      = Button(ax_cancel,      'Cancel')
         self.btn_hide_show_pred = Button(plt.axes([0.85, 0.15, 0.10, 0.05]), 'Toggle Pred')  # ← NEW
+        self.btn_accept_all_pred = Button(ax_accept_all_pred, 'Accept All Pred')  # ← NEW
 
         self.btn_delete_entry = Button(ax_delete_entry, 'Delete Entry')
 
@@ -105,7 +114,15 @@ class InteractiveBBoxViewer:
         self.btn_class_down = Button(ax_class_down, '-')
         self.btn_angle_up   = Button(ax_angle_up,   '+')
         self.btn_angle_down = Button(ax_angle_down, '-')
-        
+
+        self.gt_count_text = self.fig.text(
+            0.05, 0.15,
+            'GT Boxes: 0',
+            fontsize=10,
+            color='red',
+            fontweight='bold'
+        )
+                
         self.btn_prev.on_clicked(self.prev_image)
         self.btn_next.on_clicked(self.next_image)
         self.btn_delete.on_clicked(self.delete_selected)
@@ -119,6 +136,7 @@ class InteractiveBBoxViewer:
         self.btn_angle_down.on_clicked(self.decrement_angle)
         self.btn_delete_entry.on_clicked(self.delete_selected_entry)
         self.btn_hide_show_pred.on_clicked(self.toggle_predictions)  # ← NEW
+        self.btn_accept_all_pred.on_clicked(self.accept_all_preds)  # ← NEW
 
         # Color the accept button green for clarity
         self.btn_accept_pred.ax.set_facecolor('#c8f0c8')
@@ -139,6 +157,112 @@ class InteractiveBBoxViewer:
         self.load_image(0)
         
         plt.show()
+    
+    def update_gt_counter(self):
+        self.gt_count_text.set_text(
+            f"GT: {len(self.bboxes)} | Pred: {len(self.pred_bboxes)}"
+        )
+        self.fig.canvas.draw_idle()
+
+    def update_prediction_visibility(self, val):
+        threshold = self.confidence_slider.val
+
+        for poly, bbox_data, _ in self.pred_bboxes:
+            score = bbox_data.get('confidence', 0)
+            visible = score >= threshold
+            poly.set_visible(visible)
+            if 'text' in bbox_data:
+                bbox_data['text'].set_visible(visible)
+
+        self.fig.canvas.draw_idle()
+
+    def polygon_iou(self, pts1, pts2):
+        from shapely.geometry import Polygon as ShapelyPolygon
+
+        poly1 = ShapelyPolygon(pts1)
+        poly2 = ShapelyPolygon(pts2)
+
+        if not poly1.is_valid or not poly2.is_valid:
+            return 0.0
+
+        intersection = poly1.intersection(poly2).area
+        union = poly1.union(poly2).area
+
+        if union == 0:
+            return 0.0
+
+        return intersection / union
+
+    def accept_all_preds(self, event):
+
+        confidence_threshold = self.confidence_slider.val
+        accepted = 0
+        to_remove_pred = []
+        iou_threshold = 0.3   # adjust if needed
+
+        for i, (pred_poly, pred_data, _) in enumerate(self.pred_bboxes):
+
+            score = pred_data.get('confidence', 0)
+            if score < confidence_threshold:
+                continue
+
+            pred_pts = pred_data['pts']
+
+            # -----------------------------------------
+            # 1️⃣ Remove overlapping GT boxes
+            # -----------------------------------------
+            gt_to_remove = []
+
+            for j, (gt_poly, gt_data, _) in enumerate(self.bboxes):
+                gt_pts = gt_data['pts']
+                iou = self.polygon_iou(pred_pts, gt_pts)
+
+                if iou > iou_threshold:
+                    gt_to_remove.append(j)
+
+            for j in reversed(gt_to_remove):
+                self.bboxes[j][0].remove()
+                del self.bboxes[j]
+
+            # -----------------------------------------
+            # 2️⃣ Promote prediction to GT
+            # -----------------------------------------
+
+            to_remove_pred.append(i)
+
+            new_poly = Polygon(
+                pred_pts,
+                closed=True,
+                fill=False,
+                edgecolor='red',
+                linewidth=2,
+                picker=True
+            )
+            self.ax.add_patch(new_poly)
+
+            coords = pred_data['coords']
+            x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = coords
+
+            label_line = (
+                f"{pred_data['class']} "
+                f"{x_1:.6f} {y_1:.6f} {x_2:.6f} {y_2:.6f} "
+                f"{x_3:.6f} {y_3:.6f} {x_4:.6f} {y_4:.6f}"
+            )
+
+            gt_bbox_data = {
+                'line': label_line,
+                'class': pred_data['class'],
+                'coords': coords,
+                'pts': pred_pts,
+                'line_idx': -1
+            }
+
+            self.bboxes.append([new_poly, gt_bbox_data, False])
+            accepted += 1
+
+        print(f"Accepted {accepted} predictions and removed overlapping GT.")
+        self.update_gt_counter()
+        self.fig.canvas.draw()
 
     def on_key(self, event):
         if event.key == 'right' or event.key == 'd':
@@ -147,8 +271,6 @@ class InteractiveBBoxViewer:
             self.prev_image(None)
         elif event.key == 'delete' or event.key == 'x':
             self.delete_selected(None)
-        elif event.key == 'h':
-            self.toggle_predictions(None)
         elif event.key == 'ctrl+s':
             self.save_labels(None)
         elif event.key == 'escape':
@@ -157,6 +279,21 @@ class InteractiveBBoxViewer:
             self.accept_selected_preds(None)
         elif event.key == 'r':
             self.reset_image(None)
+        elif event.key == 'o':
+            self.deselect_all(None)
+        elif event.key == 't':
+            self.toggle_predictions(None)
+
+    def deselect_all(self, event):
+        for i, (poly, bbox_data, selected) in enumerate(self.bboxes):
+            if selected:
+                self.bboxes[i][2] = False
+                poly.set_edgecolor('red')
+        for i, (poly, bbox_data, selected) in enumerate(self.pred_bboxes):
+            if selected:
+                self.pred_bboxes[i][2] = False
+                poly.set_edgecolor('white')
+        self.fig.canvas.draw()
 
     def toggle_predictions(self, event):
         """Toggle visibility of predicted bounding boxes."""
@@ -167,8 +304,12 @@ class InteractiveBBoxViewer:
         # Check current visibility state based on the first prediction box
         current_visibility = self.pred_bboxes[0][0].get_visible()
         new_visibility = not current_visibility
-        for poly, _, _ in self.pred_bboxes:
+        for poly, bbox_data, _ in self.pred_bboxes:
             poly.set_visible(new_visibility)
+            # Also toggle the visibility of the confidence text if it exists
+            if 'text' in bbox_data:
+                bbox_data['text'].set_visible(new_visibility)
+
         state = "shown" if new_visibility else "hidden"
         print(f"Prediction boxes are now {state}.")
         self.fig.canvas.draw()
@@ -219,6 +360,7 @@ class InteractiveBBoxViewer:
 
         print(f"Accepted {accepted} prediction box(es) as ground truth.")
         self.fig.canvas.draw()
+        self.update_gt_counter()
 
     # ------------------------------------------------------------------
 
@@ -310,8 +452,11 @@ class InteractiveBBoxViewer:
         tile_name = Path(image_path).stem
         label_path = f"{self.label_dir}/{tile_name}.txt"
         nir_png_path = f"{self.nir_output_dir}/{tile_name}_NIR.png"
+        pred_found = False
         # Per-tile prediction file
-        pred_label_path = f"{predictions_dir}/{tile_name}_{COMBINATION}.txt"
+        for pred_file in Path(predictions_dir).glob(f"{tile_name}_*.txt"):
+            pred_label_path = str(pred_file)
+            pred_found = True
 
         self.legend_text.set_text(f"Image {idx+1}/{len(self.tif_files)}")
         self.fig.canvas.draw()
@@ -324,7 +469,8 @@ class InteractiveBBoxViewer:
                 img = src.read([7])
                 img = np.transpose(img, (1, 2, 0))
                 img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-                cv2.imwrite(nir_png_path, img)
+                if not Path(nir_png_path).exists():
+                    cv2.imwrite(nir_png_path, img)
         except Exception as e:
             print(f"Error reading {image_path}: {e}")
             return
@@ -346,6 +492,7 @@ class InteractiveBBoxViewer:
         self.deleted_bboxes = []
         self.cancel_drawing(None)
         
+
         # Load and draw ground truth bounding boxes (red)
         if Path(label_path).exists():
             with open(label_path, "r") as f:
@@ -379,18 +526,19 @@ class InteractiveBBoxViewer:
         else:
             print(f"Note: GT label file not found: {label_path}")
             
-        if  Path(pred_label_path).exists():
-            print(f"Note: Prediction file found: {pred_label_path}")
-            # Load and draw predicted bounding boxes (white) — per-tile file
-            if Path(pred_label_path).exists():
+        if pred_found:
+            if  Path(pred_label_path).exists():
+                print(f"Note: Prediction file found: {pred_label_path}")
+                # Load and draw predicted bounding boxes (white) — per-tile file
                 with open(pred_label_path, "r") as f:
                     for line_idx, line in enumerate(f):
                         parts = line.strip().split()
-                        if len(parts) < 9:
+                        if len(parts) < 10:
                             continue
                         
                         cls = int(parts[0])
                         x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = map(float, parts[1:9])
+                        prediction_score = float(parts[9])  # Assuming confidence is the tenth value
                         
                         pts = np.array([
                             [x_1 * self.w, y_1 * self.h],
@@ -408,12 +556,17 @@ class InteractiveBBoxViewer:
                             'class': cls,
                             'coords': (x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4),
                             'pts': pts,
-                            'line_idx': line_idx
+                            'line_idx': line_idx,
+                            'confidence': prediction_score,
+                            'text': self.ax.text(pts[2][0], pts[2][1] - self.offset, f"{cls} ({prediction_score:.2f})", color='white', fontsize=8, backgroundcolor='black')
                         }
                         self.pred_bboxes.append([poly, bbox_data, False])
+
+                        
             else:
                 print(f"Note: Prediction file not found: {pred_label_path}")
         
+        self.update_gt_counter()
         self.fig.canvas.draw()
     
     def on_click(self, event):
@@ -532,6 +685,7 @@ class InteractiveBBoxViewer:
         print(f"Added new bounding box with class {self.new_class}{angle_str}")
         
         self.cancel_drawing(None)
+        self.update_gt_counter()
         self.fig.canvas.draw()
     
     def cancel_drawing(self, event):
@@ -559,42 +713,46 @@ class InteractiveBBoxViewer:
         
         for i in reversed(to_delete):
             del self.bboxes[i]
-            del self.tif_files[self.current_idx]
         
         print(f"Deleted {len(to_delete)} GT bounding box(es)")
+        self.update_gt_counter()
         self.fig.canvas.draw()
     
     def save_labels(self, event):
         image_path = self.tif_files[self.current_idx]
         tile_name = Path(image_path).stem
         label_path = f"{self.label_dir}/{tile_name}.txt"
-        
+
+        # ----------------------------------
+        # 1️⃣ Build final label list ONLY from memory
+        # ----------------------------------
         all_labels = []
-        
-        # Keep original GT lines that weren't deleted
-        if Path(label_path).exists():
-            with open(label_path, "r") as f:
-                lines = f.readlines()
-            for i, line in enumerate(lines):
-                if i not in self.deleted_bboxes:
-                    all_labels.append(line.strip())
-        
-        # Add newly drawn or accepted-from-predictions boxes
-        for poly, bbox_data, selected in self.bboxes:
-            if bbox_data['line_idx'] == -1:
-                all_labels.append(bbox_data['line'])
-        
+
+        for poly, bbox_data, _ in self.bboxes:
+            all_labels.append(bbox_data['line'])
+
+        # ----------------------------------
+        # 2️⃣ Write to file (overwrite cleanly)
+        # ----------------------------------
         with open(label_path, "w") as f:
             for label in all_labels:
                 f.write(label + "\n")
-        
-        print(f"Saved changes to {label_path}")
-        print(f"Total labels: {len(all_labels)}")
-        print(f"Removed: {len(self.deleted_bboxes)}, "
-              f"Added: {sum(1 for _, bd, _ in self.bboxes if bd['line_idx'] == -1)}")
+
+        # ----------------------------------
+        # 3️⃣ Reset state so duplicates cannot happen
+        # ----------------------------------
+        for idx, (poly, bbox_data, selected) in enumerate(self.bboxes):
+            bbox_data['line_idx'] = idx  # now it's treated as original
+            self.bboxes[idx][1] = bbox_data
+
+        self.deleted_bboxes = []
+
+        print(f"Saved {len(all_labels)} labels to {label_path}")
+        self.update_gt_counter()
     
     def reset_image(self, event):
         self.load_image(self.current_idx)
+        self.update_gt_counter()
     
     def prev_image(self, event):
         if self.current_idx > 0:
