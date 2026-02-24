@@ -7,7 +7,7 @@ import cv2 as cv
 import rasterio
 from dataclasses import dataclass
 from image_splitter import split_geotiff
-from create_indexes import calculate_all_indices, calculate_index, Bands, Indices
+from create_indexes import calculate_all_indices, Bands, Indices
 from typing import Tuple
 from tqdm import tqdm
 from enum import IntEnum
@@ -21,8 +21,8 @@ MASK_DIR = Path()
 KERNEL_SIZE: Tuple[int, int] = (3, 3)   # [erode, dilate]
 THRESH_BOUNDS = (80, 255)
 TILE_SIZE = 1024 # pixels; actual tile size will be smaller at borders due to edge handling in split_geotiff
-TILE_ANGLE = 0 # degrees
-TILE_OFFSET = (250, 250) # pixels
+TILE_ANGLE = 45 # degrees
+TILE_OFFSET = (0,0) # pixels
 # ---------------------------------------------------------------------
 
 @dataclass
@@ -374,29 +374,36 @@ class ImageProcessor:
         cv.imwrite(str(applied_dir / f"{name}_nen.tif"), applied_mask)
         return mask
     
-    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", percentiles = []):
-        if None in [input_paths.band1, input_paths.band2, input_paths.band3]:
-            raise ValueError("Three input paths required for NEN image creation.")
+    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", percentiles = [], do_zeros = [False, False, False]):
+            if None in [input_paths.band1, input_paths.band2, input_paths.band3]:
+                raise ValueError("Three input paths required for NEN image creation.")
 
-        self.ensure_dirs(output_path)
+            self.ensure_dirs(output_path)
 
-        with rasterio.open(input_paths.band1) as src1, \
-                rasterio.open(input_paths.band2) as src2, \
-                rasterio.open(input_paths.band3) as src3:
-            band1 = src1.read(1)
-            band2 = src2.read(1)
-            band3 = src3.read(1)
+            with rasterio.open(input_paths.band1) as src1, \
+                    rasterio.open(input_paths.band2) as src2, \
+                    rasterio.open(input_paths.band3) as src3:
+                band1 = src1.read(1)
+                band2 = src2.read(1)
+                band3 = src3.read(1)
 
-        band1 = self.normalize_tile(band1)
-        band2 = self.normalize_tile(band2)
-        band3 = self.normalize_tile(band3)
+            if do_zeros[0]:
+                band1 = np.zeros_like(band1)
 
-        img = np.dstack((band1, band2, band3)).astype(np.uint8)
+            if do_zeros[1]:
+                band2 = np.zeros_like(band2)
+                
+            if do_zeros[2]:
+                band3 = np.zeros_like(band3)
 
-        index = str(Path(input_paths.band1).stem).rfind("_")
-        output_name = str(Path(input_paths.band1).stem)[:index]
-        path = str(output_path / f"{output_name}_{ending}.tif")
-        cv.imwrite(path, img)
+
+            img = np.dstack((band1, band2, band3)).astype(np.uint8)
+
+            index = str(Path(input_paths.band1).stem).rfind("_")
+            output_name = str(Path(input_paths.band1).stem)[:index]
+            path = str(output_path / f"{output_name}_{ending}.png")
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            cv.imwrite(path, img)
 
 
 
@@ -426,7 +433,7 @@ def process_images():
     OUTPUT_DIR = HOME_DIR / config.get("output_path", "")
     MASK_DIR = HOME_DIR / config.get("mask_path", "")
     proc = ImageProcessor(
-        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjornkjaervej_TestFlight_2_small.tif",
+        input_path=HOME_DIR / config.get("input_path", "") / "20250827_Bjornkjaervej_TestFlight_2_mid.tif",
         output_path=OUTPUT_DIR /  "image_tiles",
         mask_path=MASK_DIR
     )
@@ -435,150 +442,51 @@ def process_images():
     os.makedirs(labels_path, exist_ok=True)
 
     # Split image into tiles
-    proc.split_image(TILE_SIZE, TILE_ANGLE, TILE_OFFSET)
+    #proc.split_image(TILE_SIZE, TILE_ANGLE, TILE_OFFSET)
 
     # ###############################
     # # Generate indices (optional) #
     # ###############################
 
-    # dir: Path = OUTPUT_DIR / "rgb"
-    # if not dir.exists():
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
-    #         proc.recreate_original_rgb_image(proc.output_path / img, dir)
+    dir: Path = OUTPUT_DIR / "rgb"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Recreating the original RGB image"):
+            proc.recreate_original_rgb_image(proc.output_path / img, dir)
 
-    # dir = OUTPUT_DIR / "nir"
-    # if not dir.exists():
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
-    #         proc.separate_band(proc.output_path / img, dir, Bands.NIR, Alignment.MATCH_TEMPLATE)
-    # else:
-    #     print("NIR band separation skipped; output directory already exists.")
+    dir = OUTPUT_DIR / "nir"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating NIR bands from image tiles"):
+            proc.separate_band(proc.output_path / img, dir, Bands.NIR, Alignment.MATCH_TEMPLATE)
+    else:
+        print("NIR band separation skipped; output directory already exists.")
 
-    # dir = OUTPUT_DIR / "extended_red"
-    # if not dir.exists():
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
-    #         proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
-    # else:
-    #     print("EXTENDED_RED band separation skipped; output directory already exists.")
+    dir = OUTPUT_DIR / "extended_red"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_RED bands from image tiles"):
+            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_RED, Alignment.MATCH_TEMPLATE)
+    else:
+        print("EXTENDED_RED band separation skipped; output directory already exists.")
 
-    # dir = OUTPUT_DIR / "extended_green"
-    # if not dir.exists():
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
-    #         proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
-    # else:
-    #     print("EXTENDED_GREEN band separation skipped; output directory already exists.")
+    dir = OUTPUT_DIR / "extended_green"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating EXTENDED_GREEN bands from image tiles"):
+            proc.separate_band(proc.output_path / img, dir, Bands.EXTEND_GREEN, Alignment.MATCH_TEMPLATE)
+    else:
+        print("EXTENDED_GREEN band separation skipped; output directory already exists.")
 
-    # dir = OUTPUT_DIR / "rededge"
-    # if not dir.exists():
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating REDEDGE bands from image tiles"):
-    #         proc.separate_band(proc.output_path / img, dir, Bands.REDEDGE, Alignment.MATCH_TEMPLATE)
-    # else:
-    #     print("REDEDGE band separation skipped; output directory already exists.")
+    dir = OUTPUT_DIR / "rededge"
+    if not dir.exists():
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Separating REDEDGE bands from image tiles"):
+            proc.separate_band(proc.output_path / img, dir, Bands.REDEDGE, Alignment.MATCH_TEMPLATE)
+    else:
+        print("REDEDGE band separation skipped; output directory already exists.")
 
-    # dir: Path = OUTPUT_DIR / "image_tiles_indeces"
-    # if recalculate:
-    #     for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
-    #         proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
-    # else:
-    #     print("Index calculation skipped; output directory already exists.")
-
-
-    # ##############################
-    # # Create and apply NIR masks #
-    # ##############################
-
-    # dir = MASK_DIR / "NIR_MASKS"
-    # if not dir.exists():
-    #     proc.set_input_path(OUTPUT_DIR / "nir")
-    #     proc.set_mask_path(MASK_DIR / "NIR_MASKS")
-
-    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NIR masks"):
-    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (180,255), proc.input_path / img_name)
-
-    #     apply_masks(proc, "NIR_MASKS")
-    # else:
-    #     print("NIR mask creation skipped; output directory already exists.")
-
-    # ##############################
-    # # Create and apply RVI masks #
-    # ##############################
-
-    # dir = MASK_DIR / "RVI_MASKS"
-    # if not dir.exists():
-    #     proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "RVI")
-    #     proc.set_mask_path(MASK_DIR / "RVI_MASKS")
-
-    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RVI masks"):
-    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, THRESH_BOUNDS, proc.input_path / img_name)
-
-    #     apply_masks(proc, "RVI_MASKS")
-    # else:
-    #     print("RVI mask creation skipped; output directory already exists.")
-
-    ################################
-    # Create and apply NGRDI masks #
-    ################################
-
-    # dir = MASK_DIR / "NGRDI_MASKS"
-    # if not dir.exists():
-    #     proc.set_input_path(OUTPUT_DIR / "image_tiles_indeces" / "NGRDI")
-    #     proc.set_mask_path(MASK_DIR / "NGRDI_MASKS")
-    #     os.makedirs(proc.input_path, exist_ok=True)
-    #     os.makedirs(proc.mask_path, exist_ok=True)
-
-    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing NGRDI masks"):
-    #         proc.calculate_mask_from_band(False, False, KERNEL_SIZE, (100,255), proc.input_path / img_name)
-
-    #      apply_masks(proc, "NGRDI_MASKS")
-    # else:
-    #     print("NGRDI mask creation skipped; output directory already exists.")
-
-    ##############################
-    # Create and apply RGB masks #
-    ##############################
-
-    # dir = MASK_DIR / "RGB_MASKS"
-    # if not dir.exists():
-    #     Path.mkdir(dir, exist_ok=True)
-    #     proc.set_input_path(OUTPUT_DIR / "image_tiles")
-    #     proc.set_mask_path(MASK_DIR / "RGB_MASKS")
-
-    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="Processing RGB masks"):
-    #         proc.calculate_mask_from_rgb(False, False, KERNEL_SIZE, proc.input_path / img_name)
-
-    #     apply_masks(proc, "RGB_MASKS")
-
-    ############################################################
-    # Create 3-band image NEN from NGRDI, Extended Red and NIR #
-    ############################################################
-
-    # dir = OUTPUT_DIR / "NEN_images"
-    # if not dir.exists():
-    #     proc.set_input_path(OUTPUT_DIR / "image_tiles")
-    #     # proc.set_mask_path(MASK_DIR / "NEN_MASKS")
-
-    #     for img_name in tqdm(sorted(os.listdir(proc.input_path)), desc="NEN image creation"):
-    #         img_name_ngrdi = img_name.replace(".tif", "_ngrdi.tif")
-    #         img_name_nir = img_name.replace(".tif", "_NIR.tif")
-    #         img_name_er = img_name.replace(".tif", "_EXTEND_RED.tif")
-
-    #         proc.calculate_nen_image(
-    #             input_paths = NENInputBands(
-    #                 ngrdi_path=OUTPUT_DIR / "image_tiles_indeces" / "NGRDI" / img_name_ngrdi,
-    #                 extended_red_path=OUTPUT_DIR / "extended_red" / img_name_er,
-    #                 nir_path=OUTPUT_DIR / "nir" / img_name_nir,
-    #             ),
-    #             output_path=dir
-    #         )
-
-    #     # for img_name in tqdm(sorted(os.listdir(dir)), desc="Calculating NEN masks"):
-    #     #     proc.calculate_mask_from_nen((5,5) , dir / img_name, False, False)
-
-    # else:
-    #     print("NEN image creation skipped; output directory already exists.")
-
-
-
-
+    dir: Path = OUTPUT_DIR / "image_tiles_indeces"
+    if recalculate:
+        for img in tqdm(sorted(os.listdir(proc.output_path)), desc="Calculating indices for image tiles"):
+            proc.calculate_image_indices(proc.output_path / img, dir, indices_to_calculate)
+    else:
+        print("Index calculation skipped; output directory already exists.")
 
 
 def apply_masks(proc: ImageProcessor, mask_folder_name: str):

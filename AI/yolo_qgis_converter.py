@@ -765,9 +765,23 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/small_field/BV_F2_small.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/labels_txt"
+    # labels_dir = "/home/samuel/Downloads/new_dataset/Bjornkjaervej_TestFlight_2_bigger_obb/train/labels"
+    # ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/processed_output/image_tiles"
+    # pred_shp = "/home/samuel/Downloads/new_dataset/shape_files/large/Bjornkjaervej_TestFlight_2_bigger_obb.shp"
+
+    # converter.labels_to_shapefile(
+    #     labels_dir=labels_dir,
+    #     reference_tif_dir=ref_tif,
+    #     output_shapefile=pred_shp,
+    #     merge_intersecting=True,  # Enable merging of intersecting boxes
+    #     overlap_threshold=0.1,
+    #     min_area=0.004,
+    #     max_area=0.41
+    # )
+
+    shapefile_path = "/home/samuel/Downloads/new_dataset/shape_files/small/Bjornkjaervej_TestFlight_2_small_obb.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/rotated/rotated45/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/rotated/rotated45/labels"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
