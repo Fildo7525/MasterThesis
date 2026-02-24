@@ -61,9 +61,18 @@ class InteractiveBBoxViewer:
         
         # Create class input for drawing
         self.class_text = self.fig.text(0.87, 0.60, 'Class ID: 0', fontsize=10)
+
+        # Create legend showing number of images and current image number
+        self.legend_text = self.fig.text(0.05, 0.12, '', fontsize=10, fontweight='bold')
         
         # Create rotation angle input (only for rotated mode)
         self.angle_text = self.fig.text(0.87, 0.55, 'Angle: 0°', fontsize=10)
+
+        self.fig.canvas.mpl_connect('key_press_event', self.on_key)
+        # Disable conflicting defaults
+        self.fig.canvas.mpl_disconnect(
+            self.fig.canvas.manager.key_press_handler_id
+        )
         
         # Create buttons
         ax_prev         = plt.axes([0.05, 0.05, 0.08, 0.05])
@@ -130,6 +139,24 @@ class InteractiveBBoxViewer:
         self.load_image(0)
         
         plt.show()
+
+    def on_key(self, event):
+        if event.key == 'right' or event.key == 'd':
+            self.next_image(None)
+        elif event.key == 'left' or event.key == 'a':
+            self.prev_image(None)
+        elif event.key == 'delete' or event.key == 'x':
+            self.delete_selected(None)
+        elif event.key == 'h':
+            self.toggle_predictions(None)
+        elif event.key == 'ctrl+s':
+            self.save_labels(None)
+        elif event.key == 'escape':
+            self.cancel_drawing(None)
+        elif event.key == 'enter':
+            self.accept_selected_preds(None)
+        elif event.key == 'r':
+            self.reset_image(None)
 
     def toggle_predictions(self, event):
         """Toggle visibility of predicted bounding boxes."""
@@ -286,6 +313,8 @@ class InteractiveBBoxViewer:
         # Per-tile prediction file
         pred_label_path = f"{predictions_dir}/{tile_name}_{COMBINATION}.txt"
 
+        self.legend_text.set_text(f"Image {idx+1}/{len(self.tif_files)}")
+        self.fig.canvas.draw()
         
         print(f"Loading {tile_name}... ({idx+1}/{len(self.tif_files)})")
         
@@ -530,6 +559,7 @@ class InteractiveBBoxViewer:
         
         for i in reversed(to_delete):
             del self.bboxes[i]
+            del self.tif_files[self.current_idx]
         
         print(f"Deleted {len(to_delete)} GT bounding box(es)")
         self.fig.canvas.draw()
