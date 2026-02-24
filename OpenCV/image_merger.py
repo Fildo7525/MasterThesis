@@ -74,7 +74,9 @@ def merge_tiles(tiles_dir: Path, output_tif: Path, tile_size: int, overlap: int 
     output_profile.update({
         'height': output_height,
         'width': output_width,
-        'transform': first_transform
+        'transform': first_transform,
+        "driver": "GTiff",
+        "BIGTIFF": "YES",
     })
 
     # Create output file and write tiles
@@ -85,22 +87,25 @@ def merge_tiles(tiles_dir: Path, output_tif: Path, tile_size: int, overlap: int 
     with rasterio.open(output_tif, 'w', **output_profile) as dst:
         with tqdm(total=len(tiles), desc="Merging tiles", unit="tile") as pbar:
             for (i, j), tile_path in sorted(tiles.items()):
-                # Calculate position in output image
-                x_off = j * tile_size - j * overlap
-                y_off = i * tile_size - i * overlap
+                try:
+                    # Calculate position in output image
+                    x_off = j * tile_size - j * overlap
+                    y_off = i * tile_size - i * overlap
 
-                # Read tile data
-                with rasterio.open(tile_path, "r") as src:
-                    tile_data: np.ndarray = src.read()
-                    h, w = tile_data.shape[1], tile_data.shape[2]
+                    # Read tile data
+                    with rasterio.open(tile_path, "r") as src:
+                        tile_data: np.ndarray = src.read()
+                        h, w = tile_data.shape[1], tile_data.shape[2]
 
-                    tile_data[tile_data > 15000] = 0  # Set no-data values to 0
+                        tile_data[tile_data > 15000] = 0  # Set no-data values to 0
 
-                    # Write to output at correct position
-                    window = Window(x_off, y_off, w, h)
-                    dst.write(tile_data, window=window)
+                        # Write to output at correct position
+                        window = Window(x_off, y_off, w, h)
+                        dst.write(tile_data, window=window)
 
-                pbar.update(1)
+                    pbar.update(1)
+                except Exception as e:
+                    print(f"Error processing tile {tile_path}: {e}")
 
         for b in range(n_bands):
             print(f"Setting description for band {b + 1}: {description[b]}")
@@ -114,8 +119,8 @@ if __name__ == "__main__":
     tile_size = 1024
     overlap = 100
 
-    tiles_dir = Path("../Orthomosaics/NRN")
-    output_tif = Path("./merged_output.tif")
+    tiles_dir = Path("../Orthomosaics/NRN_mid")
+    output_tif = Path("./BV_TF2_NRN_mid.tif")
 
     merge_tiles(tiles_dir, output_tif, tile_size, overlap)
 

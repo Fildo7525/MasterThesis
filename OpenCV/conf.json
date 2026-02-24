@@ -1,8 +1,9 @@
 {
 	"recalculate": true,
 	"input_path": "/home/samuel/test/MasterThesis/Orthomosaics",
-	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/rotated/processed_output",
-	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/rotated/masks",
+	"output_path": "/home/samuel/test/MasterThesis/Orthomosaics/large/rotated/rotated45/processed_output",
+	"labels_path": "/home/samuel/test/MasterThesis/Orthomosaics/large/rotated/rotated45/labels",
+	"mask_path": "/home/samuel/test/MasterThesis/Orthomosaics/large/rotated/rotated45/masks",
 	"CIG": false,
 	"CIRE": false,
 	"CIVE": false,

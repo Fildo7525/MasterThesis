@@ -46,10 +46,42 @@ Brainstoring from the read papers:
 
 ## 30.01.2026
 ## 31.01.2026
+
+- [x] implementation of Bag of Visual Words (BoVW) for image classification using SIFT features and K-Means clustering.
+- [x] Clustering speed improvement using MiniBatchKMeans from sklearn.
+- [x] Added TF-IDF to weigh the importance of visual words in the BoVW model.
+
 ## 01.02.2026
+
+We agreed to not work on Sundays.
+
 ## 02.02.2026
+
+I was at work
+
 ## 03.02.2026
+
+- [x] Basic pipeline implementation for getting the images out of the orthomosaic detected by CDC
+
+- [ ] Project PNG images to Orthomosaics to help with picing out the potato images
+- [ ] Extract at least some images that are potatos
+- [ ] Feed the images to the BOVW pipeline and see if it can classify them correctly
+- [ ] Try itteratively to add new images to the training set to improve the classification
+- [ ] Test the pipeline on different bands/indices for better results
+- [ ] Test the pretrained MiniBatchKMeans model on different fields
+
 ## 04.02.2026
+
+- Meeting
+Take a screenshot of all the important images. Start the making the QGIS plugin.
+Take out the cutouts and from the shapefile and validate that. Validate segmentation and bboxes.
+
+for writing
+- Methodology (a - Opencv, b - AI)
+
+4) Methodology & Implementation
+5) Results maybe Results and Discussion
+
 ## 05.02.2026
 ## 06.02.2026
 ## 07.02.2026

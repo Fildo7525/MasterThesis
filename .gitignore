@@ -11,7 +11,6 @@ runs/*
 Orthomosaics
 MasterThesisImages.tar.xz
 OpenCV/20250827_Bjørnkjærvej_TestFlight_2_mid_RGB_uint8.tif.aux.xml
-OpenCV/__pycache__
 AI/YOLO/labels
 AI/YOLO/dataset.yaml
 runs/obb
@@ -20,11 +19,9 @@ AI/yolo12n.pt
 AI/rtdetr-l.pt
 AI/cvat
 AI/YOLO/obb.zip
-Data/indices.qgz
 AI/NEN
 AI/NEN_sorted
 AI/yolo12
-AI/__pycache__
 AI/NENE_TF2_small
 AI/NENE_TF2_small.zip
 OpenCV/BV_F2_small.cpg
@@ -36,3 +33,16 @@ OpenCV/images
 OpenCV/output
 OpenCV/*.png
 *.tif.aux.xml
+*.npy
+*.pkl
+OpenCV/thresholded_cutouts
+AI/test_rotated
+OpenCV/bovw
+OpenCV/shapefiles
+OpenCV/splits
+OpenCV/thresholded_cutouts_1
+OpenCV/thresholded_cutouts_done
+OpenCV/tmp
+*.qgz
+/OpenCV/output_*
+*__pycache__*
