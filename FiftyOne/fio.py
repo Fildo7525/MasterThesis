@@ -6,24 +6,44 @@ import cv2 as cv
 import yaml
 
 
-def convert_xyxy_boxes(sample, boxes):
+import numpy as np
+
+def convert_obb_to_fiftyone(sample, obb_coords):
+    """
+    Convert normalized OBB coords (x1,y1,x2,y2,x3,y3,x4,y4)
+    to FiftyOne format [x_top_left, y_top_left, width, height] (all normalized).
+    """
     img = cv.imread(sample.filepath)
     h, w = img.shape[:2]
 
     new_boxes = []
-    for x1, y1, x2, y2 in boxes:
-        x = x1 / w
-        y = y1 / h
-        bw = (x2 - x1) / w
-        bh = (y2 - y1) / h
-        new_boxes.append([x, y, bw, bh])
+    for coords in obb_coords:
+        # coords are already normalized floats: [x1,y1,x2,y2,x3,y3,x4,y4]
+        pts = np.array(coords).reshape(4, 2)
+
+        # Convert normalized → pixel for min/max calculation
+        pts_px = pts * np.array([w, h])
+
+        # Axis-aligned bounding box from the 4 corners
+        x_min = pts_px[:, 0].min()
+        y_min = pts_px[:, 1].min()
+        x_max = pts_px[:, 0].max()
+        y_max = pts_px[:, 1].max()
+
+        # Back to normalized [x, y, bw, bh]
+        new_boxes.append([
+            x_min / w,
+            y_min / h,
+            (x_max - x_min) / w,
+            (y_max - y_min) / h,
+        ])
 
     return new_boxes
 
 cwd = Path(os.getcwd())
 parent_dir = cwd.parent
 
-dataset_path = Path("/home/samuel/Downloads/dataset_new_version_roboflow2/combined_dataset_normalized/sorted") / "images"
+dataset_path = Path("/home/samuel/test/MasterThesis/Orthomosaics/dataset/images")
 yaml_path = dataset_path.parent / "dataset.yaml"
 dataset_type = fo.types.YOLOv5Dataset
 
@@ -50,7 +70,10 @@ for sample in dataset:
     print(f"#########################################################################################\nProcessing sample: {sample_root}\n#########################################################################################\n")
 
     for run in range(runs):
-        pth = list(annotation_path.glob(f"run{run}"))[0]
+        pth_matches = list(annotation_path.glob(f"run{run}"))
+        if not pth_matches:
+            continue
+        pth = pth_matches[0]
 
         annotations = list(pth.glob(f"{sample_root}*.txt"))
 
@@ -71,9 +94,9 @@ for sample in dataset:
         for ann in list_of_anns:
             labels.append(class_names[int(ann[0])])
             confs.append(float(ann[1]))
-            boxes.append([float(x) for x in ann[2:]])
+            boxes.append([float(x) for x in ann[2:10]])  # exactly 8 OBB coords
 
-        bboxes_adj = convert_xyxy_boxes(sample, boxes)
+        bboxes_adj = convert_obb_to_fiftyone(sample, boxes)
 
         for label, box, conf in zip(labels, bboxes_adj, confs):
             print(f"{sample_root}: RUN {run} => Label: {label} @ {conf}, BBox: {box}")
@@ -102,7 +125,7 @@ for run in range(runs):
 
     results.print_report()
 
-fob.compute_mistakenness(dataset, "run1", label_field='ground_truth')
+fob.compute_mistakenness(dataset, "run0", label_field='ground_truth')
 
 # view = ( dataset .sort_by("eval_fn", reverse=True) .filter_labels("run4", F("eval") > 0.5 )
 

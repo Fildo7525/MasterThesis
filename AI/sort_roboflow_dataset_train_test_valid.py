@@ -26,6 +26,83 @@ import os
 import numpy as np
 from pathlib import Path
 import shutil
+import json
+
+def apply_split(
+    dataset_path: Path,
+    output_path: Path,
+    split_file: Path,
+    extension: str = ".png"
+):
+    with open(split_file) as f:
+        split = json.load(f)
+
+    for split_name, stems in split.items():
+        img_out = output_path  / "images" / split_name
+        lbl_out = output_path / "labels" / split_name
+        img_out.mkdir(parents=True, exist_ok=True)
+        lbl_out.mkdir(parents=True, exist_ok=True)
+
+        for stem in stems:
+            img = dataset_path / "images" / f"{stem}{extension}"
+            lbl = dataset_path / "labels" / f"{stem}.txt"
+
+            if img.exists() and lbl.exists():
+                shutil.copy(img, img_out / img.name)
+                shutil.copy(lbl, lbl_out / lbl.name)
+
+
+def create_split_index(
+    images_dir: Path,
+    labels_dir: Path,
+    train_pct=0.7,
+    val_pct=0.2,
+    test_pct=0.1,
+    seed=42,
+    require_non_empty_val=True,
+    extension: str = ".png"
+):
+    images = sorted(images_dir.glob(f"*{extension}"))  # adjust extension if needed
+
+    # Pair image ↔ label by stem
+    pairs = []
+    for img in images:
+        lbl = labels_dir / f"{img.stem}.txt"
+        if lbl.exists():
+            pairs.append(img.stem)
+
+    rng = np.random.default_rng(seed)
+    rng.shuffle(pairs)
+
+    n = len(pairs)
+    print(f"Total samples found: {n}")
+    n_train = int(n * train_pct)
+    n_val = int(n * val_pct)
+
+    if require_non_empty_val:
+        non_empty = [
+            s for s in pairs
+            if (labels_dir / f"{s}.txt").stat().st_size > 0
+        ]
+    else:
+        non_empty = pairs
+
+    if require_non_empty_val and len(non_empty) > n_val:
+        val_stems = non_empty[:n_val]
+        train_stems = [s for s in pairs if s not in val_stems][:n_train]
+        test_stems = [s for s in pairs if s not in val_stems and s not in train_stems]
+    else:
+        val_stems = pairs[n_train:n_train + n_val]
+        train_stems = pairs[:n_train]
+        test_stems = pairs[n_train + n_val:]
+
+    split = {
+        "train": train_stems,
+        "val": val_stems,
+        "test": test_stems
+    }
+
+    return split
 
 def sort_dataset(dataset_path: Path, output_path: Path, train_percent: float, val_percent: float, test_percent: float):
     """
@@ -48,6 +125,7 @@ def sort_dataset(dataset_path: Path, output_path: Path, train_percent: float, va
 
     # Shuffle dataset
     combined = list(zip(dataset_images, dataset_labels))
+    np.random.seed(42)  # For reproducibility
     np.random.shuffle(combined)
 
     # Separate non-empty labels

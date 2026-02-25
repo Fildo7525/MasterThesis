@@ -10,45 +10,30 @@ import io
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/image_tiles"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/labels_txt"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/nir"
-gif_output_path = "/home/samuel/test/MasterThesis/Orthomosaics/rotated/small/rotated45/processed_output/tiles_with_labels.gif"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/images/train"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/labels/train"
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/processed_output/nir"
+gif_output_path = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/processed_output/tiles_with_labels.gif"
 
 # Create output directory if it doesn't exist
 Path(nir_output_dir).mkdir(parents=True, exist_ok=True)
 
-# Get all .tif files in the image directory
-tif_files = sorted(glob.glob(f"{image_dir}/*.tif"))
+# Get all .png files in the image directory
+png_files = sorted(glob.glob(f"{image_dir}/*.png"))
 
 # List to store frames for the GIF
 frames = []
 
 # Iterate over all tile files
-for idx, image_path in enumerate(tif_files):
-    # Extract tile name (e.g., "tile_2" from "tile_2.tif")
+for idx, image_path in enumerate(png_files):
+    # Extract tile name (e.g., "tile_2" from "tile_2.png")
     tile_name = Path(image_path).stem
     label_path = f"{label_dir}/{tile_name}.txt"
-    nir_png_path = f"{nir_output_dir}/{tile_name}_NIR.png"
-    
-    # print(f"Processing {tile_name}... ({idx+1}/{len(tif_files)})")
-    
-    # ------------------------------
-    # Save tif as png
-    # ------------------------------
-    try:
-        with rasterio.open(image_path) as src:
-            img = src.read([7])
-            img = np.transpose(img, (1, 2, 0))
-            cv2.imwrite(nir_png_path, (img / img.max() * 255).astype(np.uint8))
-    except Exception as e:
-        print(f"Error reading {image_path}: {e}")
-        continue
     
     # ------------------------------
     # Load image
     # ------------------------------
-    img = cv2.imread(nir_png_path)
+    img = cv2.imread(image_path)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     h, w = img.shape[:2]
     

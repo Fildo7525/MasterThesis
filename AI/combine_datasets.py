@@ -8,9 +8,10 @@ from sort_roboflow_dataset_train_test_valid import sort_dataset, create_data_yam
 import shutil
 
 
-DATASET_1_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_bigger")
-DATASET_2_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_mid")
-DATASET_3_PATH = Path("/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_small")
+DATASET_1_PATH = Path("/home/samuel/Downloads/new_dataset/Bjornkjaervej_TestFlight_2_bigger_obb")
+DATASET_2_PATH = Path("/home/samuel/Downloads/new_dataset/Bjornkjaervej_TestFlight_2_mid_obb")
+DATASET_3_PATH = Path("/home/samuel/Downloads/new_dataset/Bjornkjaervej_TestFlight_2_small_obb")
+
 
 ORIGINAL_DATASET_1_PATH = Path("/home/samuel/SDU/Bjornkjaervej_TestFlight_2_bigger/processed_output/NEN_images")
 ORIGINAL_DATASET_2_PATH = Path("/home/samuel/SDU/Bjornkjaervej_TestFlight_2_mid/processed_output/NEN_images")
@@ -274,13 +275,13 @@ if __name__ == "__main__":
     for dataset_path in datasets:
         rename_dataset_contents_based_on_last_folder(dataset_path)
 
-    rename_original_images(ORIGINAL_DATASET_1_PATH)
-    rename_original_images(ORIGINAL_DATASET_2_PATH)
-    rename_original_images(ORIGINAL_DATASET_3_PATH)
+    # rename_original_images(ORIGINAL_DATASET_1_PATH)
+    # rename_original_images(ORIGINAL_DATASET_2_PATH)
+    # rename_original_images(ORIGINAL_DATASET_3_PATH)
 
-    combine_roboflow_labels_with_original_images(original_image_paths, datasets, output_path)
-    # combine_datasets(datasets, output_path, normalize_classes=False)
-    # combine_datasets(datasets, output_path, normalize_classes=True)
+    # combine_roboflow_labels_with_original_images(original_image_paths, datasets, output_path)
+    # # combine_datasets(datasets, output_path, normalize_classes=False)
+    # # combine_datasets(datasets, output_path, normalize_classes=True)
 
     print(f"Datasets combined and saved to {output_path}")
 

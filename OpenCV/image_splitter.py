@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import Callable
+from typing import Callable, Any
 import os
 import math
 import rasterio
@@ -10,6 +10,9 @@ from pathlib import Path
 from tqdm import tqdm
 from create_indexes import Bands
 import numpy as np
+
+from rasterio.warp import reproject,  Resampling
+from affine import Affine
 
 from rasterio.warp import reproject,  Resampling
 from affine import Affine

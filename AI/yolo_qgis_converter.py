@@ -149,67 +149,44 @@ class YOLOShapefileConverter:
         return merged_polygons, merged_class_ids, merged_class_labels, merged_confidences
 
 
-    def _merge_intersecting_polygons(self, polygons: List[Polygon], class_ids: List[int],
-                                    class_labels: List[str], *, overlap_threshold: float = 0.1):
-        """
-        OPTIMIZED: Merge intersecting polygons using spatial indexing.
-        """
-        if len(polygons) == 0:
-            return [], [], []
-
-        # Clamp overlap threshold to valid range
-        overlap_threshold = max(0.0, min(1.0, overlap_threshold))
-
-        # Build spatial index for fast intersection queries
-        spatial_index = STRtree(polygons)
-
-        # Track which polygons have been merged
-        merged_flags = np.zeros(len(polygons), dtype=bool)
-
+    def _merge_intersecting_polygons(self, polygons, class_ids, class_labels, overlap_threshold=0.0):
         merged_polygons = []
         merged_class_ids = []
         merged_class_labels = []
+        used = [False] * len(polygons)
 
-        for i in range(len(polygons)):
-            if merged_flags[i]:
+        for i, poly_i in enumerate(polygons):
+            if used[i]:
                 continue
 
-            # Start a new group
-            current_group = [i]
-            current_poly = polygons[i]
-            merged_flags[i] = True
+            current_poly = poly_i
+            current_class = class_ids[i]
+            current_label = class_labels[i]
 
-            # Use spatial index to find candidates efficiently
-            changed = True
-            while changed:
-                changed = False
-                # Query spatial index for polygons that might intersect
-                candidate_indices = spatial_index.query(current_poly)
+            for j, poly_j in enumerate(polygons):
+                if i == j or used[j]:
+                    continue
+                if class_ids[j] != current_class:
+                    continue
 
-                for idx in candidate_indices:
-                    if merged_flags[idx]:
+                if current_poly.intersects(poly_j):
+                    intersection = current_poly.intersection(poly_j)
+                    smaller_area = min(current_poly.area, poly_j.area)
+
+                    if smaller_area == 0:
                         continue
 
-                    # Check if overlap ratio meets threshold
-                    overlap_ratio = self._calculate_overlap_ratio(current_poly, polygons[idx])
-
+                    overlap_ratio = intersection.area / smaller_area
                     if overlap_ratio >= overlap_threshold:
-                        current_group.append(idx)
-                        # Union the polygons
-                        current_poly = unary_union([current_poly, polygons[idx]])
-                        merged_flags[idx] = True
-                        changed = True
+                        current_poly = current_poly.union(poly_j).minimum_rotated_rectangle
+                        used[j] = True
 
-            # Get the bounding box of the merged polygon
-            merged_bbox = box(*current_poly.bounds)
-            merged_polygons.append(merged_bbox)
-
-            # Use the class of the first polygon in the group
-            merged_class_ids.append(class_ids[current_group[0]])
-            merged_class_labels.append(class_labels[current_group[0]])
+            used[i] = True
+            merged_polygons.append(current_poly)
+            merged_class_ids.append(current_class)
+            merged_class_labels.append(current_label)
 
         return merged_polygons, merged_class_ids, merged_class_labels
-
 
     def label_to_shapefile(self,
                           yolo_label_path: str | Path,
@@ -664,6 +641,7 @@ class YOLOShapefileConverter:
                 print(f"Warning: Corresponding TIF file not found for {label_file}, skipping.")
                 continue
 
+            # print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
             try:
                 self.label_to_shapefile(
                     yolo_label_path=label_file,
@@ -765,9 +743,24 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    shapefile_path = "/home/samuel/Downloads/download/samuel_filip_master_thesis_orthomosaics_with_annotations/files/small_field/BV_F2_small.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated/translated_250x_250y/labels_txt"
+    # labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
+    # ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
+    # pred_shp = "/home/samuel/Downloads/large_obb_test.shp"
+
+    # converter.labels_to_shapefile(
+    #     labels_dir=labels_dir,
+    #     reference_tif_dir=ref_tif,
+    #     output_shapefile=pred_shp,
+    #     merge_intersecting=True,  # Enable merging of intersecting boxes
+    #     overlap_threshold=0.1,
+    #     min_area=0.004,
+    #     max_area=0.41
+        
+    # )
+
+    shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/labels_new"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
