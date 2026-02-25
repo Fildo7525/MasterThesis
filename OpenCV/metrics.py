@@ -44,7 +44,7 @@ class ConfusionMatrix:
     fn: int = 0
     tn: int = 0
 
-    def print(self):
+    def print(self, save: Path | str = ""):
         print("\n" + "="*50)
         print("CONFUSION MATRIX (Object Detection)")
         print("="*50)
@@ -66,6 +66,21 @@ class ConfusionMatrix:
         print(f"  Accuracy:  {accuracy:.4f}")
         print("="*50 + "\n")
 
+        if save != "":
+            save = Path(save)
+            save.parent.mkdir(parents=True, exist_ok=True)
+            if save.exists():
+                save = str(save).replace(".txt", "_new.txt")
+            with open(save, "w") as f:
+                f.write(f"TP: {self.tp}\n")
+                f.write(f"FP: {self.fp}\n")
+                f.write(f"FN: {self.fn}\n")
+                f.write(f"TN: {self.tn}\n")
+                f.write(f"Precision {precision:.4f}\n")
+                f.write(f"Recall {recall:.4f}\n")
+                f.write(f"F1-Score {f1:.4f}\n")
+                f.write(f"Accuracy {accuracy:.4f}\n")
+
 
     def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = True):
 
@@ -85,7 +100,11 @@ class ConfusionMatrix:
         plt.title(f"Confusion Matrix {'(Normalised)' if normalised else ''}")
 
         if save != "":
-            plt.savefig(f"confusion_matrix{'_normalised' if normalised else ''}.png")
+            save = Path(save)
+            save.parent.mkdir(parents=True, exist_ok=True)
+            if save.exists():
+                save = str(save).replace(".png", "_new.png")
+            plt.savefig(f"{save}")
 
         if not hold:
             plt.show()
@@ -135,8 +154,6 @@ class Metrics:
                 else:
                     x1, y1, x2, y2, x3, y3, x4, y4 = map(float, parts[1:])
 
-                print(f"Parsed box from {file_path}: ({x1:.4f}, {y1:.4f}), ({x2:.4f}, {y2:.4f}), ({x3:.4f}, {y3:.4f}), ({x4:.4f}, {y4:.4f})")
-
                 boxes.append((x1, y1, x2, y2, x3, y3, x4, y4))
 
         return boxes
@@ -158,7 +175,6 @@ class Metrics:
 
         # In case the box is in format (x1, y1, x2, y2, x3, y3, x4, y4) - segmentation format
         else:
-            print(f"Calculating IoU for segmentation format boxes: {box1} vs {box2}")
             xs = box1[0::2]  # x1, x3, x5, x7
             ys = box1[1::2]  # y1, y3, y5, y7
             box1_x1, box1_y1 = min(xs), min(ys)
@@ -182,7 +198,7 @@ class Metrics:
         inter_y2 = min(box1_y2, box2_y2)
 
         if inter_x2 < inter_x1 or inter_y2 < inter_y1:
-            print(f"No intersection between boxes: {box1} vs {box2}")
+            # print(f"No intersection between boxes: {box1} vs {box2}")
             return 0.0
 
         intersection_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
@@ -191,7 +207,6 @@ class Metrics:
         union_area = box1_area + box2_area - intersection_area
 
         iou = intersection_area / union_area if union_area > 0 else 0.0
-        print(f"Box1: ({box1_x1:.4f}, {box1_y1:.4f}), ({box1_x2:.4f}, {box1_y2:.4f}), Area: {box1_area:.4f}")
         # print(f"Iou = overlap / union => {iou:.4f} = {inter_area:.4f} / {union_area:.4f}")
 
         return iou
@@ -298,9 +313,7 @@ class Metrics:
         """
         converter = YOLOShapefileConverter()
 
-        home = Path.home()
-
-        tmp_dir = home / "SDU/MasterThesis/OpenCV/tmp"
+        tmp_dir = Path(reference_tif_dir).parent / "metrics" / "tmp"
         if not tmp_dir.exists():
             tmp_dir.mkdir(parents=True)
 

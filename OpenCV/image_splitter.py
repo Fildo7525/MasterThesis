@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-from typing import Callable, Any
+from typing import Callable
 import os
 import math
 import rasterio
-from rasterio.io import DatasetReader, DatasetWriter
+from rasterio.io import DatasetReader
 from rasterio.windows import Window
 from pathlib import Path
 from tqdm import tqdm
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     offset = (0, 0)  # pixels
 
     orthomosaic = ORTHO_IMG_DIR / "20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif"
-    output_dir = ORTHO_IMG_DIR / "overlap_tiles_big"
+    output_dir = ORTHO_IMG_DIR / "example_tiles_big"
 
     split_geotiff(
         input_tif = orthomosaic,

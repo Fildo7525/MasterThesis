@@ -161,7 +161,7 @@ def calculate_all_indices(input_path, output_path, indices):
             img_index = compute_index(index.name, bands)
 
             out_path = output_path_copy / f"{input_path.stem}_{index.name.lower()}.tif"
-            cv2.imwrite(str(out_path), img_index.astype(np.float32))    
+            cv2.imwrite(str(out_path), img_index.astype(np.float32))
 
 
 def calculate_index(input_path, output_path, index: Indices):

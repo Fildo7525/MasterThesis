@@ -116,11 +116,11 @@ def merge_tiles(tiles_dir: Path, output_tif: Path, tile_size: int, overlap: int 
 
 if __name__ == "__main__":
     # Example usage - adjust these parameters to match your splitting parameters
-    tile_size = 1024
-    overlap = 100
+    tile_size = 2048
+    overlap = 0
 
-    tiles_dir = Path("../Orthomosaics/NRN_mid")
-    output_tif = Path("./BV_TF2_NRN_mid.tif")
+    tiles_dir = Path("../Orthomosaics/NRN_big_v2")
+    output_tif = Path("./BV_TF2_NRN_big_v5.tif")
 
     merge_tiles(tiles_dir, output_tif, tile_size, overlap)
 

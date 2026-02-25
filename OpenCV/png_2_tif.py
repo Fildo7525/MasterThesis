@@ -34,18 +34,19 @@ def tif2png(input_path: Path, output_path: Path):
         out_mat = []
 
         for i in range(all_bands.shape[0]):
-            band = all_bands[i, :, :].astype(np.float32)
+            band = all_bands[i, :, :].astype(np.uint16)
 
-            # Min–max normalization
-            min_v = band.min()
-            max_v = band.max()
+            # # Min–max normalization
+            # min_v = band.min()
+            # max_v = band.max()
 
-            if max_v > min_v:
-                band = (band - min_v) / (max_v - min_v)
-            else:
-                band = np.zeros_like(band)
+            # if max_v > min_v:
+            #     band = (band - min_v) / (max_v - min_v)
+            # else:
+            #     band = np.zeros_like(band)
 
-            band = (band * 255).astype(np.uint8)
+            # band = (band * 255).astype(np.uint8)
+            # band = (np.round(np.sqrt(band))).astype(np.uint8)
             out_mat.append(band)
 
         out_mat.reverse()
@@ -64,6 +65,6 @@ if __name__ == "__main__":
 
     # png2tif(input_path, reference_tif, output_path)
 
-    input_path = Path("/home/fildo/SDU/MasterThesis/OpenCV/annotated_pngs/mid/tile_15_9.tif")
-    output_path = Path("/home/fildo/SDU/MasterThesis/OpenCV/annotated_pngs/mid/tile_15_9.png")
+    input_path = Path("/home/fildo/SDU/MasterThesis/Orthomosaics/NRN_big/tile_10_9.tif")
+    output_path = Path("/home/fildo/SDU/MasterThesis/OpenCV/annotated_pngs/big/tile_10_9_u16.png")
     tif2png(input_path, output_path)

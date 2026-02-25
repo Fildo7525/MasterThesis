@@ -1,26 +1,26 @@
-import shutil
+from subprocess import CompletedProcess
+import cv2 as cv
 from cv2.typing import MatLike
-from os import read
-from image_splitter import split_geotiff
-from tif_file_test import export2png, read_multiband_tiff, reference_band_indices
-from features.features import FeatureExtractor
-from threading import Lock
-from concurrent.futures import ThreadPoolExecutor
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
-import cv2 as cv
+
 import numpy as np
+import shutil
 import subprocess as sp
 import sys
+
+from features.features import FeatureExtractor
+from image_splitter import split_geotiff
+from tif_file_test import read_multiband_tiff
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from AI.yolo_qgis_converter import YOLOShapefileConverter
 from metrics import Metrics, ConfusionMatrix
 
 THRESHOLDED_CUTOUTS_DIR = Path("./thresholded_cutouts")
-LABELS_TO_SHP_DIR = Path.cwd() / "shapefiles" / "labels"
-LABELS_TO_SHP_DIR.mkdir(parents=True, exist_ok=True)
 
 MIN_AREA_PX = 160
 MAX_AREA_PX = 16_200
@@ -28,10 +28,57 @@ MAX_AREA_PX = 16_200
 MIN_AREA_M2 = 0.004
 MAX_AREA_M2 = 0.404457
 
+@dataclass
+class ApproachArgs:
+    orthomosaic_path: Path
+    reference_png: Path
+    annotated_png: Path
+    run_cdc: bool
+    ground_truth_shp: Path
+    png_dir: Path
 
 class OpenCVApproach:
     def __init__(self):
         self.png_dir: Path = Path.cwd()
+        self.output: Path = Path.cwd() / "output"
+        self.labels_dir = self.output / "labels"
+
+
+    def set_output(self, output: Path | str, rename_existing: bool = True):
+        self.output = Path(output)
+        if self.output.exists() and rename_existing:
+            existing_dirs = self.output.parent.glob(f"{self.output.stem}_*")
+            new_name_for_existing = self.output.parent / f"{self.output.stem}_0001"
+            nums = sorted(list(map(int, (p.stem.split("_")[-1] for p in existing_dirs if p.is_dir() and p.stem.startswith(self.output.stem)))))
+            max_num = nums[-1] if nums else 0
+            new_name_for_existing = self.output.parent / f"{self.output.stem}_{max_num + 1:04}"
+
+            # path.rename does not work if the directiory is not empty.
+            shutil.move(str(output), str(new_name_for_existing))
+
+        self.labels_dir = self.output / "labels"
+        if not self.labels_dir.exists():
+            self.labels_dir.mkdir(parents=True, exist_ok=True)
+
+
+    def move_contents(self, src: Path | str, dst: Path | str):
+        src = Path(src)
+        dst = Path(dst)
+
+        if not src.exists():
+            raise FileNotFoundError("Source directory 'output' does not exist")
+
+        if not dst.exists():
+            # Simple rename
+            src.rename(dst)
+
+        else:
+            # Merge contents
+            for item in src.iterdir():
+                shutil.move(str(item), str(dst))
+
+            # Remove the now-empty source directory
+            src.rmdir()
 
 
     def to_cv_uint8(self, all_bands: np.ndarray,
@@ -86,6 +133,7 @@ class OpenCVApproach:
 
         # https://docs.opencv.org/3.4/d3/dc0/group__imgproc__shape.html#gaedef8c7340499ca391d459122e51bef5
         num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(mask_bin)
+        print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
 
         # print(f"Image size: {image.shape}, Mask size: {mask.shape}, Found {num_labels - 1} objects.")
         if image.shape[:2] != mask.shape[:2]:
@@ -94,34 +142,81 @@ class OpenCVApproach:
         objects = []
         bboxes = []
 
-        with open(LABELS_TO_SHP_DIR / f"tile_{row}_{column}.txt", "w") as f:
-            for label in range(1, num_labels):  # 0 is background
-                # Create mask for this object
-                obj_mask = (labels == label).astype(np.uint8)
+        def process_label_segmentation(label):
+            obj_mask = (labels == label).astype(np.uint8)
+            x, y, w, h, _ = stats[label]
+            area = w * h
 
-                x, y, w, h, mask_area = stats[label]
-                area = w * h
-                if area < min_area or max_area < area:
+            if area < min_area or max_area < area:
+                return None
+
+            # TOP LEFT
+            nx1 = x / image.shape[1]
+            ny1 = y / image.shape[0]
+
+            # TOP RIGHT
+            nx2 = (x + w) / image.shape[1]
+            ny2 = y / image.shape[0]
+
+            # BOTTOM RIGHT
+            nx3 = (x + w) / image.shape[1]
+            ny3 = (y + h) / image.shape[0]
+
+            # BOTTOM LEFT
+            nx4 = x / image.shape[1]
+            ny4 = (y + h) / image.shape[0]
+
+            segm = (nx1, ny1, nx2, ny2, nx3, ny3, nx4, ny4)
+            bbox = (x, y, w, h)
+            if export_masks:
+                obj = mask
+            else:
+                if image.ndim == 2:
+                    obj = image * obj_mask
+                else:
+                    obj = image * obj_mask[:, :, None]
+
+            return (segm, bbox, obj)
+
+
+        def process_label_obb(label):
+            obj_mask = (labels == label).astype(np.uint8)
+            x, y, w, h, _ = stats[label]
+            area = w * h
+
+            if area < min_area or max_area < area:
+                return None
+
+            nx = (x + w//2) / image.shape[1]
+            ny = (y + h//2) / image.shape[0]
+            nw = w / image.shape[1]
+            nh = h / image.shape[0]
+            obb = (nx, ny, nw, nh)
+            bbox = (x, y, w, h)
+            if export_masks:
+                obj = mask
+            else:
+                if image.ndim == 2:
+                    obj = image * obj_mask
+                else:
+                    obj = image * obj_mask[:, :, None]
+
+            return (obb, bbox, obj)
+
+        with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
+            results = []
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(process_label_segmentation, range(1, num_labels)))
+
+            for res in results:
+                if res is None:
                     continue
 
-                nx = (x + w//2) / image.shape[1]
-                ny = (y + h//2) / image.shape[0]
-                nw = w / image.shape[1]
-                nh = h / image.shape[0]
-
-                f.write(f"0 {nx} {ny} {nw} {nh}\n")
-                bboxes.append((x, y, w, h))
-
-                if export_masks:
-                    objects.append(mask)
-
-                else:
-                    if image.ndim == 2:
-                        obj = image * obj_mask
-                    else:
-                        obj = image * obj_mask[:, :, None]
-
-                    objects.append(obj)
+                segm, bbox, obj = res
+                x1, y1, x2, y2, x3, y3, x4, y4 = segm
+                f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+                bboxes.append(bbox)
+                objects.append(obj)
 
         return objects, bboxes
 
@@ -159,17 +254,32 @@ class OpenCVApproach:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         bands = src.read(window=window)
+        # print(f"Processing cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
 
         # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
-        thresholded = np.ascontiguousarray(self.to_cv_uint8(bands, [0])[:, :, 0])
+        thresholded = np.ascontiguousarray(bands[0, :, :])
         thresholded = thresholded.reshape(thresholded.shape[0], thresholded.shape[1])
+
+        if row == 4 and column == 8:
+            cv.imshow(f"Original cutout {row}_{column}", thresholded)
 
         # The value 9 was detected experimentally via GIMP
         cv.threshold(thresholded, 7, 255, cv.THRESH_BINARY_INV, dst=thresholded)
         # print(f"Processing cutout at {row}, {column}, shape: {thresholded.shape}, type: {thresholded.dtype}\n\n")
         # cv.erode(threasholded[:, :, 0], kernel=np.ones((3, 3), np.uint8), dst = threasholded[:, :, 0], iterations = 2)
 
-        img: np.ndarray = self.get_tile_png(row, column)
+        if row == 4 and column == 8:
+            cv.imshow(f"Thresholded cutout {row}_{column}", thresholded)
+            key = cv.waitKey(0)
+            cv.destroyAllWindows()
+            if key == ord('q'):
+                print("Exiting early from cutout processing.")
+                sys.exit(0)
+
+        img: np.ndarray = bands.astype(np.uint16)
+        # make the img in CV uint16 format
+        img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
+        # img: np.ndarray = self.get_tile_png(row, column)
 
         out_path = out_dir.parent / "saved" / f"tile_{row}_{column}.png"
         if not out_path.parent.exists():
@@ -181,11 +291,19 @@ class OpenCVApproach:
         if masks == []:
             return bands
 
+        i = 0
+        for obj in masks:
+            # cv.imshow(f"Object in tile {row}_{column}_{i}", obj)
+            obj_path = out_dir / f"object_{row}_{column}_{i:04}.png"
+            cv.imwrite(str(obj_path), obj)
+            # print(f"Object shape: {obj.shape}, dtype: {obj.dtype}")
+            i += 1
+
         rects = self.generate_bbox_mask(masks, bboxes)
 
-        extractor = FeatureExtractor()
-        for i, mask in enumerate(rects):
-            features = extractor.process_multiband_tif(bands, mask=mask)
+        # extractor = FeatureExtractor()
+        # for i, mask in enumerate(rects):
+        #     features = extractor.process_multiband_tif(bands, mask=mask)
             # print(f"Object {i} in tile_{row}_{column} features:")
             # name, values_dict = list(features.items())[0]
             # print(f"  {name}:")
@@ -195,53 +313,43 @@ class OpenCVApproach:
         return bands
 
 
-    def process_orthomosaic(
-            self,
-            orthomosaic_path: Path,
-            reference_png: Path,
-            annotated_png: Path,
-            ground_truth_shp: Path,
-            png_dir: Path):
+    def process_orthomosaic(self, args: ApproachArgs):
 
-        self.png_dir = png_dir
+        self.png_dir = args.png_dir
 
         print("🆀 Running Colour Difference Classifier (CDC)...")
 
-        output: Path = Path.cwd() / f"output_{orthomosaic_path.stem}"
-        # if output.exists():
-        #     existing_dirs = output.parent.glob(f"{output.stem}_*")
-        #     new_name_for_existing = output.parent / f"{output.stem}_0001"
-        #     nums = sorted(list(map(int, (p.stem.split("_")[-1] for p in existing_dirs if p.is_dir() and p.stem.startswith(output.stem)))))
-        #     max_num = nums[-1] if nums else 0
-        #     new_name_for_existing = output.parent / f"{output.stem}_{max_num + 1:04}"
-
-        #     # path.rename does not work if the directiory is not empty.
-        #     shutil.move(str(output), str(new_name_for_existing))
-
+        output: Path = Path.cwd() / f"output_{args.orthomosaic_path.stem}"
+        # self.output = output
+        # self.labels_dir = self.output / "labels"
+        self.set_output(output, args.run_cdc)
 
         cmd = [
             "CDC",
-            f"{orthomosaic_path.absolute()}",
-            f"{reference_png.absolute()}",
-            f"{annotated_png.absolute()}",
-            "--save_ref_pixels",
+            f"{args.orthomosaic_path.absolute()}",
+            f"{args.reference_png.absolute()}",
+            f"{args.annotated_png.absolute()}",
+            # "--save_ref_pixels",
             "--save_statistics",
         ]
 
 
-        print(f"Running command: {' '.join(cmd)}")
+        if args.run_cdc:
+            print(f"Running command: {' '.join(cmd)}")
 
-        # completed = sp.run(cmd)
-        # shutil.move("./output", f"output_{orthomosaic_path.stem}")
-
-        print(f"✅ CDC finished and saved to file {output.absolute()}\n")
+            sp.run(cmd)
+            self.move_contents("output", f"output_{args.orthomosaic_path.stem}")
+            print(f"✅ CDC finished and saved to file {self.output.absolute()}\n")
+        else:
+            print("⚠️ Skipping CDC execution as per configuration. Assuming output is already generated.")
+            print("Using existing output directory:", self.output.absolute())
 
         print("🆀 Running the image splitter with OpenCV approach...")
 
         # Split the generated orthomosaic into tiles using OpenCV approach
         split_geotiff(
-            input_tif = output / "orthomosaic.tiff",
-            output_dir = output / "tiles",
+            input_tif = self.output / "orthomosaic.tiff",
+            output_dir = self.output / "tiles",
             tile_size=1024,
             overlap = 0,
             process_window=self.process_window,
@@ -250,33 +358,38 @@ class OpenCVApproach:
         print("🆀 Converting YOLO labels to shapefile...")
 
         converter = YOLOShapefileConverter()
-        pred_shp = output / "labels_shapefile.shp"
+        pred_shp = self.output / "labels_shapefile.shp"
         converter.labels_to_shapefile(
-            labels_dir = LABELS_TO_SHP_DIR,
-            reference_tif_dir = output / "tiles",
+            labels_dir = self.labels_dir,
+            reference_tif_dir = self.output / "tiles",
             output_shapefile = pred_shp,
-            min_area = 0.002,
+            min_area = MIN_AREA_M2,
             max_area = MAX_AREA_M2,
         )
+
+        print("Labels saved to files in directory:", self.labels_dir.absolute())
+        print("Predicted shapefile saved to:", pred_shp.absolute())
 
         iou_threshold = 0.1
 
         print("Computing confusion matrix...")
-        print(f"Ground truth shape: {ground_truth_shp}")
+        print(f"Ground truth shape: {args.ground_truth_shp}")
         print(f"Predictions shape: {pred_shp}")
         print(f"IoU threshold: {iou_threshold}")
 
         metrics = Metrics()
         results: ConfusionMatrix = metrics.compute_from_shapefiles(
-            gt_shp = ground_truth_shp,
+            gt_shp = args.ground_truth_shp,
             pred_shp = pred_shp,
-            reference_tif_dir = output / "tiles",
+            reference_tif_dir = self.output / "tiles",
             iou_threshold=iou_threshold
         )
         # results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
-        results.print()
-        results.plot(hold=True, save = "confusion_matrix.png")
-        results.plot(hold=True, normalised=True, save = "confusion_matrix_normalised.png")
+        metrics_path = self.output / "metrics"
+        metrics_path.mkdir(parents=True, exist_ok=True)
+        results.print(save = metrics_path / "confusion_matrix.txt")
+        results.plot(hold=True, save = metrics_path / "confusion_matrix.png")
+        results.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
 
 
 if __name__ == "__main__":
@@ -287,11 +400,31 @@ if __name__ == "__main__":
 
     base_dir = Path.home() / "SDU/MasterThesis"
 
+    orthomosaics: List[ApproachArgs] = [
+        # ApproachArgs(
+        #     orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
+        #     reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
+        #     annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
+        #     ground_truth_shp = base_dir / "Orthomosaics/shape_files/small/Bjornkjaervej_TestFlight_2_small_obb.shp",
+        #     png_dir = base_dir / "Orthomosaics/NRN_small/pngs"
+        # ),
+        # ApproachArgs(
+        #     orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_mid.tif",
+        #     reference_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9.png",
+        #     annotated_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9_annotated_v2.png",
+        #     ground_truth_shp = base_dir / "Orthomosaics/shape_files/mid/Bjornkjaervej_TestFlight_2_mid_obb.shp",
+        #     png_dir = base_dir / "Orthomosaics/NRN_mid/pngs"
+        # ),
+        ApproachArgs(
+            orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_big.tif",
+            reference_png = base_dir / "OpenCV/annotated_pngs/big/tile_4_8.png",
+            annotated_png = base_dir / "OpenCV/annotated_pngs/big/tile_4_8_annotated.png",
+            ground_truth_shp = base_dir / "Orthomosaics/shape_files/large/Bjornkjaervej_TestFlight_2_bigger_obb.shp",
+            png_dir = base_dir / "Orthomosaics/NRN_big/pngs",
+            run_cdc = False,
+        ),
+    ]
+
     processor = OpenCVApproach()
-    processor.process_orthomosaic(
-        orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
-        reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
-        annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
-        ground_truth_shp = base_dir / "Orthomosaics/shape_files/small/Bjornkjaervej_TestFlight_2_small_obb.shp",
-        png_dir = base_dir / "Orthomosaics/NRN_small/pngs"
-    )
+    for args in orthomosaics:
+        processor.process_orthomosaic(args)
