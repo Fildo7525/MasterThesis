@@ -743,31 +743,31 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/original/original/labels"
-    ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/small/original/original/processed_output/image_tiles"
-    pred_shp = "/home/samuel/Downloads/small_obb_test.shp"
+    # labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
+    # ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
+    # pred_shp = "/home/samuel/Downloads/large_obb_test.shp"
 
-    converter.labels_to_shapefile(
-        labels_dir=labels_dir,
-        reference_tif_dir=ref_tif,
-        output_shapefile=pred_shp,
-        merge_intersecting=True,  # Enable merging of intersecting boxes
-        overlap_threshold=0.1,
-        min_area=0.004,
-        max_area=0.41
+    # converter.labels_to_shapefile(
+    #     labels_dir=labels_dir,
+    #     reference_tif_dir=ref_tif,
+    #     output_shapefile=pred_shp,
+    #     merge_intersecting=True,  # Enable merging of intersecting boxes
+    #     overlap_threshold=0.1,
+    #     min_area=0.004,
+    #     max_area=0.41
         
-    )
-
-    # shapefile_path = "/home/samuel/Downloads/Bjornkjaervej_TestFlight_2_bigger_obb.shp"
-    # reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
-    # output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
-
-    # results = converter.shapefile_to_yolo_cutouts(
-    #     shapefile_path = shapefile_path,
-    #     cutouts_dir = reference_tif_dir,
-    #     output_labels_dir = output_labels_dir,
-    #     database_model=YoloDatasetModel.SEGMENTATION
     # )
+
+    shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/labels_new"
+
+    results = converter.shapefile_to_yolo_cutouts(
+        shapefile_path = shapefile_path,
+        cutouts_dir = reference_tif_dir,
+        output_labels_dir = output_labels_dir,
+        database_model=YoloDatasetModel.SEGMENTATION
+    )
 
     # for res in results:
         # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
