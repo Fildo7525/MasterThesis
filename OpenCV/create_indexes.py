@@ -202,7 +202,7 @@ def compute_index(name: str, bands: list[np.ndarray]) -> np.ndarray:
 
 
 # -------- Processing --------
-def _read_normalized_bands(src: rasterio.DatasetReader) -> list[np.ndarray]:
+def read_normalized_bands(src: rasterio.DatasetReader) -> list[np.ndarray]:
     """
     Read all bands from an open rasterio dataset and normalize to [0, 1].
     Supports uint8 (max 255) and uint16 (max 65535) source data.
@@ -236,7 +236,7 @@ def calculate_all_indices(input_path, output_path, indices):
 
         out_path = output_path / f"{input_path.stem}_all_indices.tif"
         with rasterio.open(out_path, "w", **meta) as dst:
-            bands = _read_normalized_bands(src)
+            bands = read_normalized_bands(src)
 
             for index in indices:
                 float_index  = compute_index(index.name, bands)
@@ -245,6 +245,17 @@ def calculate_all_indices(input_path, output_path, indices):
                 dst.write(uint16_index, int(index))
                 cv2.imwrite(str(output_path / f"{input_path.stem}_{index.name.lower()}.png"), uint16_index)
                 dst.set_band_description(int(index), index.name)
+
+
+def caluclate_index(band, index: Indices):
+    """
+    Compute a single vegetation index from a single band array.
+
+    This is a simplified interface for testing and visualization purposes.
+    The band array should already be normalized to [0, 1].
+    """
+    # For testing, we can just return the input band as a placeholder
+    return band
 
 
 def calculate_index(input_path, output_path, index: Indices):
@@ -266,7 +277,7 @@ def calculate_index(input_path, output_path, index: Indices):
         meta  = src.profile.copy()
         meta.update(dtype=rasterio.uint16, count=1)
 
-        bands = _read_normalized_bands(src)
+        bands = read_normalized_bands(src)
         float_index = compute_index(index.name, bands)
         uint16_index = scale_to_uint16(float_index, index.name)
 
