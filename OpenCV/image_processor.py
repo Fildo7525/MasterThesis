@@ -374,7 +374,7 @@ class ImageProcessor:
         cv.imwrite(str(applied_dir / f"{name}_nen.png"), applied_mask)
         return mask
     
-    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", percentiles = []):
+    def calculate_three_band_image(self, input_paths: ThreeBandInputPaths, output_path: Path, ending: str = "", do_zeros = [False, False, False]):
         if None in [input_paths.band1, input_paths.band2, input_paths.band3]:
             raise ValueError("Three input paths required for NEN image creation.")
 
@@ -387,15 +387,24 @@ class ImageProcessor:
             band2 = src2.read(1)
             band3 = src3.read(1)
 
-        band1 = self.normalize_tile(band1)
-        band2 = self.normalize_tile(band2)
-        band3 = self.normalize_tile(band3)
+        if do_zeros[0]: 
+            band1 = np.zeros_like(band1)
+        else:
+            band1 = self.normalize_tile(band1)
+        if do_zeros[1]: 
+            band2 = np.zeros_like(band2)
+        else:
+            band2 = self.normalize_tile(band2)
+        if do_zeros[2]: 
+            band3 = np.zeros_like(band3)
+        else:
+            band3 = self.normalize_tile(band3)
 
         img = np.dstack((band1, band2, band3)).astype(np.uint8)
 
         index = str(Path(input_paths.band1).stem).rfind("_")
         output_name = str(Path(input_paths.band1).stem)[:index]
-        path = str(output_path / f"{output_name}_{ending}.tif")
+        path = str(output_path / f"{output_name}_{ending}.png")
         cv.imwrite(path, img)
 
 

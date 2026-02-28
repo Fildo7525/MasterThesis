@@ -7,21 +7,25 @@ import glob
 from matplotlib.patches import Polygon
 from matplotlib.widgets import Button, RadioButtons, Slider, TextBox
 import os
+from shapely.affinity import rotate
+from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/translated/translated250x250y/processed_output/image_tiles"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/translated/translated250x250y/labels_new"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/mid/translated/translated250x250y/processed_output/nir"
-predictions_dir = "/home/samuel/MasterThesis/runs/obb/inference/val_predictions/labels"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/images/val"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/labels/val"
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/translated_rotated/translated_250x_250y_rotated_45/processed_output/nir"
+predictions_dir = "/home/samuel/test/MasterThesis/runs/obb/inference/val_predictions/labels"
 COMBINATION = "NIR_RED_NGRDI"
+extension = "png"
 
 # Create output directory if it doesn't exist
 Path(nir_output_dir).mkdir(parents=True, exist_ok=True)
 
 # Get all .tif files in the image directory
-tif_files = sorted(glob.glob(f"{image_dir}/*.tif"))
+tif_files = sorted(glob.glob(f"{image_dir}/*.{extension}"))
 
 class InteractiveBBoxViewer:
     def __init__(self, tif_files, image_dir, label_dir, nir_output_dir):
@@ -96,6 +100,8 @@ class InteractiveBBoxViewer:
         # ── Jump-to-image controls ──────────────────────────────────────────
         ax_jump_box = plt.axes([0.87, 0.30, 0.06, 0.04])
         ax_jump_btn = plt.axes([0.94, 0.30, 0.04, 0.04])
+        ax_cycle_through_bboxes = plt.axes([0.87, 0.25, 0.10, 0.04])
+
         self._jump_textbox_focused = False
         self.jump_textbox = TextBox(ax_jump_box, 'Go to #', initial='', color='0.95', hovercolor='1.0')
         self.jump_textbox.on_submit(self.jump_to_image)
@@ -126,6 +132,9 @@ class InteractiveBBoxViewer:
         self.btn_class_down = Button(ax_class_down, '-')
         self.btn_angle_up   = Button(ax_angle_up,   '+')
         self.btn_angle_down = Button(ax_angle_down, '-')
+        self.btn_cycle_bboxes = Button(ax_cycle_through_bboxes, 'Cycle BBoxes')
+
+        self.iou_threshold = 0.1  # for accepting predictions and removing overlapping GT
 
         self.gt_count_text = self.fig.text(
             0.05, 0.15,
@@ -149,6 +158,7 @@ class InteractiveBBoxViewer:
         self.btn_delete_entry.on_clicked(self.delete_selected_entry)
         self.btn_hide_show_pred.on_clicked(self.toggle_predictions)
         self.btn_accept_all_pred.on_clicked(self.accept_all_preds)
+        self.btn_cycle_bboxes.on_clicked(self.cycle_through_bboxes)
 
         # Color the accept button green for clarity
         self.btn_accept_pred.ax.set_facecolor('#c8f0c8')
@@ -169,6 +179,33 @@ class InteractiveBBoxViewer:
         self.load_image(0)
         
         plt.show()
+
+    def cycle_through_bboxes(self, event):
+        """Cycle selection through GT and Pred bboxes for current image."""
+        all_boxes = self.bboxes + self.pred_bboxes
+        if not all_boxes:
+            return
+        
+        # Find currently selected box
+        selected_idx = None
+        for i, (_, _, selected) in enumerate(all_boxes):
+            if selected:
+                selected_idx = i
+                break
+        
+        # Deselect current
+        if selected_idx is not None:
+            all_boxes[selected_idx][2] = False
+            all_boxes[selected_idx][0].set_edgecolor('red' if selected_idx < len(self.bboxes) else 'white')
+            all_boxes[selected_idx][0].set_linewidth(2)
+        
+        # Select next
+        next_idx = 0 if selected_idx is None else (selected_idx + 1) % len(all_boxes)
+        all_boxes[next_idx][2] = True
+        all_boxes[next_idx][0].set_edgecolor('blue' if next_idx < len(self.bboxes) else 'cyan')
+        all_boxes[next_idx][0].set_linewidth(3)
+        
+        self.fig.canvas.draw()
 
     # ── Jump-to-image helpers ───────────────────────────────────────────────
     def _track_textbox_focus(self, event):
@@ -335,9 +372,33 @@ class InteractiveBBoxViewer:
             self.deselect_all(None)
         elif event.key == 't':
             self.toggle_predictions(None)
+        elif event.key == 'j':
+            self.join_polygons(None,self.iou_threshold)
         elif event.key == 'h':
             self.show_predictions_global_toggle(None)
-
+        elif event.key == 'c':
+            self.cycle_through_bboxes(None)
+        elif event.key == '+':
+            if self.mode == 'draw_rect':
+                self.increment_class(None)
+            elif self.mode == 'draw_rotated':
+                self.increment_angle(None)
+        elif event.key == '-':
+            if self.mode == 'draw_rect':
+                self.decrement_class(None)
+            elif self.mode == 'draw_rotated':
+                self.decrement_angle(None)
+        elif event.key == 'm':
+            # toggle modes
+            if self.mode == 'select':
+                self.change_mode('Draw Rectangle')
+                self.radio.set_active(1)  # Set to "Draw Rectangle"
+            elif self.mode == 'draw_rect':
+                self.change_mode('Draw Rotated Box')
+                self.radio.set_active(2)  # Set to "Draw Rotated Box"
+            else:
+                self.change_mode('Select Mode')
+                self.radio.set_active(0)  # Set to "Select Mode"
     def deselect_all(self, event):
         for i, (poly, bbox_data, selected) in enumerate(self.bboxes):
             if selected:
@@ -507,17 +568,19 @@ class InteractiveBBoxViewer:
         
         print(f"Loading {tile_name}... ({idx+1}/{len(self.tif_files)})")
         
-        # Save NIR channel as PNG
-        try:
-            with rasterio.open(image_path) as src:
-                img = src.read([7])
-                img = np.transpose(img, (1, 2, 0))
-                img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-                if not Path(nir_png_path).exists():
-                    cv2.imwrite(nir_png_path, img)
-        except Exception as e:
-            print(f"Error reading {image_path}: {e}")
-            return
+        if extension.lower() == "png":
+            nir_png_path = image_path
+        else:
+            try:
+                with rasterio.open(image_path) as src:
+                    img = src.read([7])
+                    img = np.transpose(img, (1, 2, 0))
+                    img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                    if not Path(nir_png_path).exists():
+                        cv2.imwrite(nir_png_path, img)
+            except Exception as e:
+                print(f"Error reading {image_path}: {e}")
+                return
         
         # Load image
         self.img = cv2.imread(nir_png_path)
@@ -674,6 +737,111 @@ class InteractiveBBoxViewer:
                                   edgecolor='blue', linewidth=2, linestyle='--')
         self.ax.add_patch(self.temp_shape)
         self.fig.canvas.draw()
+
+    def join_polygons(self, event=None, iou_threshold=0.3):
+        """
+        Merge GT polygons of same class if IoU > threshold.
+        Resulting shape becomes minimum rotated rectangle of union.
+        """
+
+        from shapely.geometry import Polygon as ShapelyPolygon
+
+        if len(self.bboxes) < 2:
+            print("Not enough GT boxes to join.")
+            return
+
+        used = [False] * len(self.bboxes)
+        new_bboxes = []
+
+        for i in range(len(self.bboxes)):
+
+            if used[i]:
+                continue
+
+            poly_patch_i, data_i, _ = self.bboxes[i]
+            poly_i = ShapelyPolygon(data_i['pts'])
+            cls_i = data_i['class']
+
+            merged_poly = poly_i
+
+            for j in range(i + 1, len(self.bboxes)):
+
+                if used[j]:
+                    continue
+
+                poly_patch_j, data_j, _ = self.bboxes[j]
+
+                if data_j['class'] != cls_i:
+                    continue
+
+                poly_j = ShapelyPolygon(data_j['pts'])
+
+                # Compute IoU
+                inter = merged_poly.intersection(poly_j).area
+                union = merged_poly.union(poly_j).area
+
+                if union == 0:
+                    continue
+
+                iou = inter / union
+
+                if iou > iou_threshold:
+                    merged_poly = merged_poly.union(poly_j)
+                    used[j] = True
+
+            used[i] = True
+
+            # Convert to minimum rotated rectangle
+            merged_poly = merged_poly.minimum_rotated_rectangle
+            merged_pts = np.array(merged_poly.exterior.coords[:-1])
+
+            # Normalize coordinates
+            normalized_coords = []
+            for pt in merged_pts:
+                normalized_coords.extend([pt[0] / self.w, pt[1] / self.h])
+
+            x1, y1, x2, y2, x3, y3, x4, y4 = normalized_coords
+
+            label_line = (
+                f"{cls_i} "
+                f"{x1:.6f} {y1:.6f} {x2:.6f} {y2:.6f} "
+                f"{x3:.6f} {y3:.6f} {x4:.6f} {y4:.6f}"
+            )
+
+            # Create new matplotlib polygon
+            new_patch = Polygon(
+                merged_pts,
+                closed=True,
+                fill=False,
+                edgecolor='red',
+                linewidth=2,
+                picker=True
+            )
+
+            self.ax.add_patch(new_patch)
+
+            bbox_data = {
+                'line': label_line,
+                'class': cls_i,
+                'coords': (x1, y1, x2, y2, x3, y3, x4, y4),
+                'pts': merged_pts,
+                'line_idx': -1
+            }
+
+            new_bboxes.append([new_patch, bbox_data, False])
+
+        # Remove old patches
+        for poly_patch, _, _ in self.bboxes:
+            try:
+                poly_patch.remove()
+            except:
+                pass
+
+        self.bboxes = new_bboxes
+
+        print(f"Joined polygons using IoU threshold {iou_threshold}")
+        self.update_gt_counter()
+        self.fig.canvas.draw()
     
     def finish_rectangle(self):
         if len(self.drawing_points) != 2:
@@ -792,11 +960,19 @@ class InteractiveBBoxViewer:
     
     def prev_image(self, event):
         if self.current_idx > 0:
+            self.join_polygons(None, iou_threshold=self.iou_threshold)  # merge all GT boxes to reset to original state
+            self.save_labels(None)  # auto-save before moving to previous image
             self.load_image(self.current_idx - 1)
+ 
+
     
     def next_image(self, event):
         if self.current_idx < len(self.tif_files) - 1:
+            self.join_polygons(None, iou_threshold=self.iou_threshold)  # merge all GT boxes to reset to original state
+            self.save_labels(None)  # auto-save before moving to next image
             self.load_image(self.current_idx + 1)
+
+
 
 # Run the interactive viewer
 viewer = InteractiveBBoxViewer(tif_files, image_dir, label_dir, nir_output_dir)

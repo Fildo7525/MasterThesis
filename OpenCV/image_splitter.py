@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 
-<<<<<<< HEAD
-from typing import Callable
-=======
 from typing import Callable, Any
->>>>>>> temp_branch
 import os
 import math
 import rasterio
@@ -23,12 +19,6 @@ from affine import Affine
 
 ORTHO_IMG_DIR = Path("../Orthomosaics/")
 
-<<<<<<< HEAD
-def process_tile(src, i, j, tile_size, output_dir, overlap, angle:float = 0.0, process_window=lambda x, i, j: x):
-    # Define pixel offsets
-    x_off: float = j * tile_size - j * overlap
-    y_off: float = i * tile_size - i * overlap
-=======
 def process_tile(
         src, i: int, j: int,
         tile_size: int,
@@ -41,7 +31,6 @@ def process_tile(
     # Define pixel offsets
     x_off: float = j * tile_size - j * overlap + offset[0]
     y_off: float = i * tile_size - i * overlap + offset[1]
->>>>>>> temp_branch
     width: float = src.width
     height: float = src.height
 
@@ -67,32 +56,21 @@ def process_tile(
     cx = w / 2
     cy = h / 2
 
-<<<<<<< HEAD
-    rotation = (
-=======
     rotation: Affine = (
->>>>>>> temp_branch
         Affine.translation(cx, cy) *
         Affine.rotation(angle) *
         Affine.translation(-cx, -cy)
     )
 
     rotated_transform = transform * rotation
-<<<<<<< HEAD
-=======
     new_transform = rotated_transform if angle != 0.0 else transform
->>>>>>> temp_branch
 
     # Update profile for each tile
     tile_profile = src.profile.copy()
     tile_profile.update({
         "height": h,
         "width": w,
-<<<<<<< HEAD
-        "transform": rotated_transform
-=======
         "transform": new_transform,
->>>>>>> temp_branch
     })
 
     # print(f"Source description: {src.descriptions or "No descriptions"}")
@@ -103,31 +81,11 @@ def process_tile(
     out_path = os.path.join(output_dir, tile_name)
 
     # User defined processing function
-<<<<<<< HEAD
-    bands = process_window(src.read(window=window), i, j)
-=======
     process_window(src, window, i, j)
     bands = src.read(window=window)
->>>>>>> temp_branch
 
     # Read the window and write it out
     with rasterio.open(out_path, "w", **tile_profile) as dst:
-<<<<<<< HEAD
-        for band in range(1, src.count + 1):
-            reproject(
-                source=rasterio.band(src, band),
-                destination=rasterio.band(dst, band),
-                src_transform=src.transform,
-                src_crs=src.crs,
-                dst_transform=rotated_transform,
-                dst_crs=src.crs,
-                src_window=window,
-                resampling=Resampling.bilinear
-            )
-
-
-def split_geotiff(input_tif: Path, output_dir: Path, tile_size: int, overlap: int = 0, angle: float = 0.0, process_window=lambda x, i, j: x):
-=======
         if angle == 0.0:
             dst.write(bands)
             for idx, name in enumerate(names, start=1):
@@ -166,7 +124,6 @@ def split_geotiff(input_tif: Path,
         angle: float = 0.0,
         offset: tuple = (0, 0),
         process_window: Callable[[DatasetReader, Window, int, int], np.ndarray] = lambda src, window, i, j: np.array([])):
->>>>>>> temp_branch
     """
     Splits a multispectral GeoTIFF into square tiles with optional overlap.
 
@@ -182,11 +139,8 @@ def split_geotiff(input_tif: Path,
         Overlap between adjacent tiles in pixels (default: 0)
     angle : float [degrees] (default: 0.0)
         Rotation angle in **degrees** to apply to each tile (default: 0.0)
-<<<<<<< HEAD
-=======
     offset : tuple, optional
         Offset in pixels to apply to the final merged image (default: (0, 0))
->>>>>>> temp_branch
     process_window : Callable, optional
         A function to process each window of the image. It should accept the window data and the tile indices (i, j) and return the processed window data. Default is a no-op function.
     """
@@ -210,11 +164,8 @@ def split_geotiff(input_tif: Path,
         print(f"Tile size: {tile_size} px")
         print(f"Overlap: {overlap} px")
         print(f"angle: {angle} degrees")
-<<<<<<< HEAD
-=======
         print(f"Offset x: {offset[0]} px")
         print(f"Offset y: {offset[1]} px")
->>>>>>> temp_branch
         print(f"Splitting into {n_cols} x {n_rows} tiles")
 
         # Loop through tiles
@@ -222,12 +173,8 @@ def split_geotiff(input_tif: Path,
         with tqdm(total=total_tiles, desc=f"Processing {input_tif.name}", unit="tile") as pbar:
             for i in range(n_rows):
                 for j in range(n_cols):
-<<<<<<< HEAD
-                    process_tile(src, i, j, tile_size, output_dir, overlap, angle, process_window)
-=======
                     # try:
                     process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset,process_window)
->>>>>>> temp_branch
                     pbar.update(1)
                     # except Exception as e:
                     #     print(f"Error processing tile ({i}, {j}): {e}")
@@ -238,22 +185,13 @@ def split_geotiff(input_tif: Path,
 if __name__ == "__main__":
     # Example usage
     tile_size = 1024
-<<<<<<< HEAD
-    overlap = 100
-    angle = 45.0  # degrees
-=======
     overlap = 0
     angle = 0  # degrees
     offset = (0, 0)  # pixels
->>>>>>> temp_branch
 
     orthomosaic = ORTHO_IMG_DIR / "20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif"
     output_dir = ORTHO_IMG_DIR / "overlap_tiles_big"
 
-<<<<<<< HEAD
-    output_dir = ORTHO_IMG_DIR / "example_tiles"
-    split_geotiff(ORTHO_IMG_DIR / "small" / "20250827_Bjørnkjærvej_TestFlight_2_mid.tif", output_dir, tile_size, overlap, 45.0)
-=======
     split_geotiff(
         input_tif = orthomosaic,
         output_dir = output_dir,
@@ -262,7 +200,6 @@ if __name__ == "__main__":
         angle = angle,
         offset = offset,
     )
->>>>>>> temp_branch
     # for img in ORTHO_IMG_DIR.glob("*.tif"):
     #     output_dir = ORTHO_IMG_DIR / f"{img.stem}_tiles"
     #     split_geotiff(img, output_dir, tile_size, overlap)
