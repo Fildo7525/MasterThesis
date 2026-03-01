@@ -169,7 +169,7 @@ class OpenCVApproach:
             segm = (nx1, ny1, nx2, ny2, nx3, ny3, nx4, ny4)
             bbox = (x, y, w, h)
             if export_masks:
-                obj = mask
+                obj = obj_mask
             else:
                 if image.ndim == 2:
                     obj = image * obj_mask
@@ -177,31 +177,6 @@ class OpenCVApproach:
                     obj = image * obj_mask[:, :, None]
 
             return (segm, bbox, obj)
-
-
-        def process_label_obb(label):
-            obj_mask = (labels == label).astype(np.uint8)
-            x, y, w, h, _ = stats[label]
-            area = w * h
-
-            if area < min_area or max_area < area:
-                return None
-
-            nx = (x + w//2) / image.shape[1]
-            ny = (y + h//2) / image.shape[0]
-            nw = w / image.shape[1]
-            nh = h / image.shape[0]
-            obb = (nx, ny, nw, nh)
-            bbox = (x, y, w, h)
-            if export_masks:
-                obj = mask
-            else:
-                if image.ndim == 2:
-                    obj = image * obj_mask
-                else:
-                    obj = image * obj_mask[:, :, None]
-
-            return (obb, bbox, obj)
 
         with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
             results = []
