@@ -41,7 +41,7 @@ class FeatureExtractor:
             # Calculate GLCM only on masked region
             # Extract bounding box to reduce computation
             if np.any(mask):
-                coords = np.argwhere(mask == 255)
+                coords = np.argwhere(mask != 0)
                 y_min, x_min = coords.min(axis = 0)
                 y_max, x_max = coords.max(axis = 0)
 
