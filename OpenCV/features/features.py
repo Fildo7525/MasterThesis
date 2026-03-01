@@ -75,6 +75,29 @@ class FeatureExtractor:
 
         return features
 
+    def process(self, src: DatasetReader | Any, band_indices: List[int] | None = None, mask: np.ndarray | None = None):
+        # Determine which bands to process
+        if band_indices is None:
+            if type(src) is DatasetReader:
+                band_indices = list(range(src.count))
+            else:
+                # the src is np.ndarray with shape (bands, rows, cols)
+                band_indices = list(range(src.shape[0]))
+
+        results = {}
+
+
+        for band_idx in band_indices:
+            if type(src) is DatasetReader:
+                band_data = src.read(band_idx + 1)  # rasterio uses 1-based indexing
+            else:
+                band_data = src[band_idx]  # Convert to 0-based
+
+            features = self.__calculate_glcm_features(band_data, mask=mask)
+            results[f'band_{band_idx}'] = features
+
+        return results
+
 
     def process_multiband_tif(self, tif: Path | Any, band_indices: List[int] | None = None, mask: np.ndarray | None = None):
         """
@@ -93,36 +116,12 @@ class FeatureExtractor:
         --------
         dict : Nested dictionary {band_idx: {feature_name: value}}
         """
-        def process(src, band_indices=band_indices, mask=mask):
-            # Determine which bands to process
-            if band_indices is None:
-                if type(src) == DatasetReader:
-                    band_indices = range(1, src.count + 1)  # rasterio uses 1-based indexing
-                else:
-                    # the src is np.ndarray with shape (bands, rows, cols)
-                    band_indices = range(1, src.shape[0] + 1)  # Convert to 1-based
-            else:
-                band_indices = [idx + 1 for idx in band_indices]  # Convert to 1-based
-
-            results = {}
-
-
-            for band_idx in band_indices:
-                if type(src) == DatasetReader:
-                    band_data = src.read(band_idx)
-                else:
-                    band_data = src[band_idx - 1]  # Convert to 0-based
-
-                features = self.__calculate_glcm_features(band_data, mask=mask)
-                results[f'band_{band_idx}'] = features
-
-            return results
 
         if type(tif) == Path or type(tif) == str:
             with rasterio.open(tif) as src:
-                return process(src)
+                return self.process(src, band_indices=band_indices, mask=mask)
         else:
-            return process(tif)
+            return self.process(tif, band_indices=band_indices, mask=mask)
 
 
 
