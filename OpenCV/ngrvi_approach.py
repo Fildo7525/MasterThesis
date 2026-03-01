@@ -9,6 +9,8 @@ from create_indexes import *
 from image_splitter import split_geotiff
 from image_merger import merge_tiles
 
+DBG = True
+
 @dataclass
 class ApproachArgs:
     orthomosaic_path: Path
@@ -23,6 +25,7 @@ class NgrviApproach:
         self.png_dir: Path = Path.cwd()
         self.output: Path = Path.cwd() / "output"
         self.labels_dir = self.output / "labels"
+
 
     def set_output(self, output: Path | str, rename_existing: bool = True):
         self.output = Path(output)
@@ -41,24 +44,42 @@ class NgrviApproach:
             self.labels_dir.mkdir(parents=True, exist_ok=True)
 
 
+    def create_ngrdi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
+
+        if DBG:
+            print(f"Creating NGRDI mask from {len(list_bands)} bands")
+            for i, band in enumerate(bands):
+                print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
+
+        index = compute_index(Indices.NGRVI.name, list_bands)
+        ngrdi_u16 = scale_to_uint16(index, Indices.NGRVI.name)
+        threshold_value = UINT16_MAX * 0.016
+        mask = np.zeros_like(ngrdi_u16)
+        cv.threshold(ngrdi_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
+
+        return mask, ngrdi_u16
+
+
     def process_window(self, src, window, row: int, column: int) -> np.ndarray:
         scale = UINT16_MAX
         bands = src.read(window=window).astype(np.float32) / scale
-        index = compute_index(Indices.NGRVI.name, bands)
-        uint16_index = scale_to_uint16(index, Indices.NGRVI.name)
 
-        cv.imshow(f"NGRVI {row}_{column}", uint16_index)
-        threshold_value = UINT16_MAX * 0.016
-        cv.threshold(uint16_index, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=uint16_index)
-        cv.imshow(f"NGRVI_thresholded {row}_{column}", uint16_index)
+        print(f"Shape: {bands.shape}, dtype: {bands.dtype}, min: {bands.min()}, max: {bands.max()}")
 
-        key = cv.waitKey(0)
-        cv.destroyAllWindows()
+        # Create a mask.
+        mask, ngrdi_u16 =  self.create_ngrdi_mask(bands)
+        if DBG:
+            cv.imshow(f"NGRVI {row}_{column}", ngrdi_u16)
+            cv.imshow(f"NGRVI_thresholded {row}_{column}", mask)
 
-        if key == ord('q'):
-            exit(0)
+            key = cv.waitKey(0)
+            cv.destroyAllWindows()
 
-        return uint16_index
+            if key == ord('q'):
+                exit(0)
+
+        return mask
 
 
     def process_orthomosaic(self, args: ApproachArgs):
