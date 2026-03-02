@@ -58,11 +58,11 @@ class NgrviApproach:
             self.labels_dir.mkdir(parents=True, exist_ok=True)
 
 
-    def create_ngrdi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def create_ngrvi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
 
         if DBG:
-            print(f"Creating NGRDI mask from {len(list_bands)} bands")
+            print(f"Creating NGRVI mask from {len(list_bands)} bands")
             for i, band in enumerate(bands):
                 print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
 
@@ -201,7 +201,7 @@ class NgrviApproach:
             print(f"Shape: {bands.shape}, dtype: {bands.dtype}, min: {bands.min()}, max: {bands.max()}")
 
         # Create a mask.
-        mask, ngrdi_u16 =  self.create_ngrdi_mask(bands)
+        mask, ngrdi_u16 =  self.create_ngrvi_mask(bands)
         if DBG:
             cv.imshow(f"NGRVI {row}_{column}", ngrdi_u16)
             cv.imshow(f"NGRVI_thresholded {row}_{column}", mask)
