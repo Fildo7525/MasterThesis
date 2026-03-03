@@ -133,7 +133,7 @@ class OpenCVApproach:
 
         # https://docs.opencv.org/3.4/d3/dc0/group__imgproc__shape.html#gaedef8c7340499ca391d459122e51bef5
         num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(mask_bin)
-        print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
+        # print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
 
         # print(f"Image size: {image.shape}, Mask size: {mask.shape}, Found {num_labels - 1} objects.")
         if image.shape[:2] != mask.shape[:2]:
@@ -233,6 +233,10 @@ class OpenCVApproach:
 
         # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
         thresholded = np.ascontiguousarray(bands[0, :, :])
+        if row == 4 and column == 8:
+            print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
+            cv.imshow(f"Original cutout {row}_{column}", thresholded)
+
         thresholded = thresholded.reshape(thresholded.shape[0], thresholded.shape[1])
 
         if row == 4 and column == 8:
@@ -274,7 +278,7 @@ class OpenCVApproach:
             # print(f"Object shape: {obj.shape}, dtype: {obj.dtype}")
             i += 1
 
-        rects = self.generate_bbox_mask(masks, bboxes)
+        # rects = self.generate_bbox_mask(masks, bboxes)
 
         # extractor = FeatureExtractor()
         # for i, mask in enumerate(rects):
@@ -373,28 +377,31 @@ if __name__ == "__main__":
     # distance will be calculated between the reference pixels and all other pixels in the image.
     # The output orthomosaic will be in "./output/orthomosaic.tiff"
 
-    base_dir = Path.home() / "SDU/MasterThesis"
+    home = Path.home()
+    base_dir = home / "SDU/MasterThesis"
 
     orthomosaics: List[ApproachArgs] = [
-        # ApproachArgs(
-        #     orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
-        #     reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
-        #     annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
-        #     ground_truth_shp = base_dir / "Orthomosaics/shape_files/small/Bjornkjaervej_TestFlight_2_small_obb.shp",
-        #     png_dir = base_dir / "Orthomosaics/NRN_small/pngs"
-        # ),
-        # ApproachArgs(
-        #     orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_mid.tif",
-        #     reference_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9.png",
-        #     annotated_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9_annotated_v2.png",
-        #     ground_truth_shp = base_dir / "Orthomosaics/shape_files/mid/Bjornkjaervej_TestFlight_2_mid_obb.shp",
-        #     png_dir = base_dir / "Orthomosaics/NRN_mid/pngs"
-        # ),
+        ApproachArgs(
+            orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
+            reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
+            annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+            png_dir = base_dir / "Orthomosaics/NRN_small/pngs",
+            run_cdc = True,
+        ),
+        ApproachArgs(
+            orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_mid.tif",
+            reference_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9.png",
+            annotated_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9_annotated_v2.png",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+            png_dir = base_dir / "Orthomosaics/NRN_mid/pngs",
+            run_cdc = True,
+        ),
         ApproachArgs(
             orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_big.tif",
             reference_png = base_dir / "OpenCV/annotated_pngs/big/tile_4_8.png",
             annotated_png = base_dir / "OpenCV/annotated_pngs/big/tile_4_8_annotated.png",
-            ground_truth_shp = base_dir / "Orthomosaics/shape_files/large/Bjornkjaervej_TestFlight_2_bigger_obb.shp",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
             png_dir = base_dir / "Orthomosaics/NRN_big/pngs",
             run_cdc = False,
         ),

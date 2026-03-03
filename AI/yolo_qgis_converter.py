@@ -72,8 +72,8 @@ class YOLOShapefileConverter:
         polygons: List[Polygon],
         class_ids: List[int],
         class_labels: List[str],
-        class_confidences: List[float],
         *,
+        class_confidences: List[float] | None = None,
         overlap_threshold: float = 0.1,
         confidence_inheritance: YoloConfidenceMerging = YoloConfidenceMerging.MAX
         ) -> tuple[List[Polygon], List[int], List[str], List[float]]:
@@ -109,7 +109,7 @@ class YOLOShapefileConverter:
             # Start a new group
             current_group = [i]
             current_poly = polygons[i]
-            current_confidences = [class_confidences[i]]
+            current_confidences = [class_confidences[i]] if class_confidences is not None else []
             merged_flags[i] = True
 
             # Use spatial index to find candidates efficiently
@@ -131,7 +131,9 @@ class YOLOShapefileConverter:
                         current_group.append(idx)
                         # Union the polygons
                         current_poly = unary_union([current_poly, polygons[idx]])
-                        current_confidences.append(class_confidences[idx])
+                        if class_confidences is not None:
+                            current_confidences.append(class_confidences[idx])
+
                         merged_flags[idx] = True
                         changed = True
 
@@ -140,7 +142,8 @@ class YOLOShapefileConverter:
             merged_polygons.append(merged_bbox)
 
             # Calculate merged confidence
-            merged_confidences.append(confidence_inheritance.calculate_confidence(current_confidences))
+            if class_confidences is not None:
+                merged_confidences.append(confidence_inheritance.calculate_confidence(current_confidences))
 
             # Use the class of the first polygon in the group
             merged_class_ids.append(class_ids[current_group[0]])
@@ -149,7 +152,7 @@ class YOLOShapefileConverter:
         return merged_polygons, merged_class_ids, merged_class_labels, merged_confidences
 
 
-    def _merge_intersecting_polygons(self, polygons, class_ids, class_labels, overlap_threshold=0.0):
+    def _merge_intersecting_polygons(self, polygons, class_ids, class_labels, overlap_threshold=0.01):
         merged_polygons = []
         merged_class_ids = []
         merged_class_labels = []
@@ -321,7 +324,7 @@ class YOLOShapefileConverter:
 
         # Merge intersecting polygons if requested
         if merge_intersecting:
-            polygons, class_ids, class_labels = self._merge_intersecting_polygons(
+            polygons, class_ids, class_labels, _ = self.merge_intersecting_polygons(
                 polygons, class_ids, class_labels, overlap_threshold = overlap_threshold
             )
 
@@ -334,7 +337,7 @@ class YOLOShapefileConverter:
 
             # Merge all intersecting polygons
             if merge_intersecting:
-                polygons, class_ids, class_labels = self._merge_intersecting_polygons(
+                polygons, class_ids, class_labels, _ = self.merge_intersecting_polygons(
                     all_polygons, all_class_ids, all_class_labels, overlap_threshold = overlap_threshold
                 )
             else:
@@ -633,7 +636,7 @@ class YOLOShapefileConverter:
             return None
 
         processed_count = 0
-        for _, label_file in tqdm(enumerate(label_files), total=len(label_files), desc="Processing label files"):
+        for label_file in tqdm(label_files, total=len(label_files), desc="Processing label files"):
 
             # Corresponding TIF file
             tif_file = reference_tif_dir / f"{label_file.stem}.tif"
@@ -642,22 +645,22 @@ class YOLOShapefileConverter:
                 continue
 
             # print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
-            try:
-                self.label_to_shapefile(
-                    yolo_label_path=label_file,
-                    reference_tif_file=tif_file,
-                    output_shapefile=output_shapefile,
-                    save=True,
-                    merge_intersecting=merge_intersecting,
-                    overlap_threshold=overlap_threshold,
-                    min_area=min_area,
-                    max_area=max_area
-                )
-                processed_count += 1
+            # try:
+            self.label_to_shapefile(
+                yolo_label_path=label_file,
+                reference_tif_file=tif_file,
+                output_shapefile=output_shapefile,
+                save=True,
+                merge_intersecting=merge_intersecting,
+                overlap_threshold=overlap_threshold,
+                min_area=min_area,
+                max_area=max_area
+            )
+            processed_count += 1
 
-            except Exception as e:
-                print(f"Error processing {label_file}: {e}")
-                continue
+            # except Exception as e:
+            #     print(f"Error processing {label_file}: {e}")
+            #     continue
 
         print(f"Processed {processed_count} label files")
         print(f"Saved combined shapefile to {output_shapefile}")
@@ -755,7 +758,7 @@ if __name__ == "__main__":
     #     overlap_threshold=0.1,
     #     min_area=0.004,
     #     max_area=0.41
-        
+
     # )
 
     shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"

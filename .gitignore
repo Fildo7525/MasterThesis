@@ -46,3 +46,6 @@ OpenCV/tmp
 *.qgz
 /OpenCV/output_*
 *__pycache__*
+/OpenCV/indices_output
+/.env
+/OpenCV/keep_output_20250827_Bjørnkjærvej_TestFlight_2_small

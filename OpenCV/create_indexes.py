@@ -128,13 +128,16 @@ INDEX_RANGES = {
 UINT16_MAX = 65535
 
 
-def scale_to_uint16(arr: np.ndarray, index_name: str) -> np.ndarray:
+def scale_to_uint16(arr: np.ndarray, index_name: Indices | str) -> np.ndarray:
     """
     Clip a float index array to its theoretical range and scale linearly to uint16 (0–65535).
 
     The original float value can be recovered with:
         float_value = uint16_value / 65535 * (vmax - vmin) + vmin
     """
+    if isinstance(index_name, Indices):
+        index_name = index_name.name
+
     vmin, vmax = INDEX_RANGES.get(index_name, (-1.0, 1.0))
     arr = np.clip(arr, vmin, vmax)
     arr = (arr - vmin) / (vmax - vmin)  # normalize to [0, 1]
@@ -143,7 +146,7 @@ def scale_to_uint16(arr: np.ndarray, index_name: str) -> np.ndarray:
 
 
 # -------- Index Formulas --------
-def compute_index(name: str, bands: list[np.ndarray]) -> np.ndarray:
+def compute_index(name: str | Indices, bands: list[np.ndarray]) -> np.ndarray:
     """
     Compute a vegetation index from a list of band arrays.
 
@@ -159,6 +162,9 @@ def compute_index(name: str, bands: list[np.ndarray]) -> np.ndarray:
     eps    = 1e-5
     lmbda  = 0.667
     L      = 0.5
+
+    if isinstance(name, Indices):
+        name = name.name
 
     formulas = {
         "CIG":      lambda: (NIR / (G + eps)) - 1,
@@ -245,17 +251,6 @@ def calculate_all_indices(input_path, output_path, indices):
                 dst.write(uint16_index, int(index))
                 cv2.imwrite(str(output_path / f"{input_path.stem}_{index.name.lower()}.png"), uint16_index)
                 dst.set_band_description(int(index), index.name)
-
-
-def caluclate_index(band, index: Indices):
-    """
-    Compute a single vegetation index from a single band array.
-
-    This is a simplified interface for testing and visualization purposes.
-    The band array should already be normalized to [0, 1].
-    """
-    # For testing, we can just return the input band as a placeholder
-    return band
 
 
 def calculate_index(input_path, output_path, index: Indices):
