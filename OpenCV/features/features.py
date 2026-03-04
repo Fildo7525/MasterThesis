@@ -73,6 +73,7 @@ class FeatureExtractor:
                 # print(f"Mask values: {np.unique(mask)}")
 
                 # print(f"Applying mask: bounding box rows {y_min}-{y_max}, cols {x_min}-{x_max}")
+                rectangle = True
                 if rectangle:
                     bitwise_selected = cv.bitwise_and(band_data, band_data, mask=mask.astype(np.uint8))
                     cropped_data = bitwise_selected[y_min:y_max+1, x_min:x_max+1]
@@ -81,12 +82,17 @@ class FeatureExtractor:
                 # cropped_mask = mask[min_row:max_row, min_col:max_col]
 
                 # cv.imshow("Original Band Data", band_data)
-                # cv.imshow("Mask", mask.astype(np.uint8)*255)
                 # cv.imshow("Cropped Mask", mask[y_min:y_max+1, x_min:x_max+1].astype(np.uint8)*255)
-                # cv.imshow("Cropped Band Data", cropped_data)
-                # cv.imshow("Masked Band Data", bitwise_selected)
                 # cv.imwrite("./copped_band_data.png", cropped_data)
                 # print(f"Band data shape: {band_data.shape}, Mask shape: {mask.shape}, Cropped data shape: {cropped_data.shape}")
+
+                # cv.imshow("Cropped Band Data", cropped_data)
+                # cv.imshow("Masked Band Data", bitwise_selected)
+
+                # msk = mask.astype(np.uint8)*255
+                # print(f"Mask shape: {msk.shape}, mean msk value: {msk.mean():.4f}, min msk value: {msk.min()}, max msk value: {msk.max()}")
+                # cv.imshow("Mask", np.concatenate((msk.astype(np.uint8)*255, cropped_data, bitwise_selected), axis = 1))
+
                 # key = cv.waitKey(0)
                 # cv.destroyAllWindows()
                 # if key == ord('q'):

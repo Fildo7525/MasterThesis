@@ -1,0 +1,18 @@
+{
+  "n_samples": 1402,
+  "n_dims": 12,
+  "use_pca": true,
+  "pca_variance_kept": 0.99,
+  "use_ledoit_wolf": true,
+  "distance_stats": {
+    "min": 1.2622140156213952,
+    "mean": 3.2781090163284348,
+    "max": 8.822190126082495,
+    "std": 0.9512908707926244
+  },
+  "thresholds": {
+    "95pct": 5.054867570292414,
+    "100pct": 8.822190126082495
+  },
+  "chi_theoretical_95": 4.585419262999085
+}

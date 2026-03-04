@@ -539,21 +539,22 @@ if __name__ == "__main__":
 
     DBG = False
 
+    home = Path.home()
     base_dir = Path.home() / "SDU/MasterThesis"
     model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
     appr = NgrviApproach(model_path)
 
     orthomosaics: list[ApproachArgs] = [
         ApproachArgs(
-            ground_truth_shp = base_dir / "Orthomosaics/shape_files/small/Bjornkjaervej_TestFlight_2_small_obb.shp",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
             orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
         ),
         ApproachArgs(
-            ground_truth_shp = base_dir / "Orthomosaics/shape_files/mid/Bjornkjaervej_TestFlight_2_mid_obb.shp",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
             orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
         ),
         ApproachArgs(
-            ground_truth_shp = base_dir / "Orthomosaics/shape_files/large/Bjornkjaervej_TestFlight_2_bigger_obb.shp",
+            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
             orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
         ),
     ]
