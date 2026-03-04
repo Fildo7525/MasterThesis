@@ -173,11 +173,11 @@ def split_geotiff(input_tif: Path,
         with tqdm(total=total_tiles, desc=f"Processing {input_tif.name}", unit="tile") as pbar:
             for i in range(n_rows):
                 for j in range(n_cols):
-                    try:
-                        process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset,process_window)
-                        pbar.update(1)
-                    except Exception as e:
-                        print(f"Error processing tile ({i}, {j}): {e}")
+                    # try:
+                    process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset,process_window)
+                    pbar.update(1)
+                    # except Exception as e:
+                    #     print(f"Error processing tile ({i}, {j}): {e}")
 
     print("✅ Done splitting GeoTIFF!")
 

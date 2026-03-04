@@ -22,6 +22,7 @@ from metrics import Metrics, ConfusionMatrix
 
 THRESHOLDED_CUTOUTS_DIR = Path("./thresholded_cutouts")
 
+UINT16_MAX = 65535
 MIN_AREA_PX = 160
 MAX_AREA_PX = 16_200
 
@@ -228,22 +229,24 @@ class OpenCVApproach:
         out_dir = THRESHOLDED_CUTOUTS_DIR / f"t_{row}_{column}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        bands = src.read(window=window)
+        bands = src.read(1, window=window)
+        thresholded = bands
         # print(f"Processing cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
 
         # print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
-        thresholded = np.ascontiguousarray(bands[0, :, :])
+        # thresholded = np.ascontiguousarray(bands[0, :, :])
         if row == 4 and column == 8:
             print(f"\n\nOriginal cutout at {row}, {column}, shape: {bands.shape}, type: {bands.dtype}")
-            cv.imshow(f"Original cutout {row}_{column}", thresholded)
+        # cv.imshow(f"Original cutout {row}_{column}", thresholded)
 
-        thresholded = thresholded.reshape(thresholded.shape[0], thresholded.shape[1])
+        # thresholded = thresholded.reshape(thresholded.shape[0], thresholded.shape[1])
 
         if row == 4 and column == 8:
-            cv.imshow(f"Original cutout {row}_{column}", thresholded)
+            cv.imshow(f"Original cutout 2 {row}_{column}", thresholded.astype(np.uint8))
+            cv.imwrite(str(out_dir / f"original_cutout_{row}_{column}.png"), thresholded.astype(np.uint8))
 
         # The value 9 was detected experimentally via GIMP
-        cv.threshold(thresholded, 7, 255, cv.THRESH_BINARY_INV, dst=thresholded)
+        cv.threshold(thresholded, 22, 255, cv.THRESH_BINARY_INV, dst=thresholded)
         # print(f"Processing cutout at {row}, {column}, shape: {thresholded.shape}, type: {thresholded.dtype}\n\n")
         # cv.erode(threasholded[:, :, 0], kernel=np.ones((3, 3), np.uint8), dst = threasholded[:, :, 0], iterations = 2)
 
@@ -255,9 +258,9 @@ class OpenCVApproach:
                 print("Exiting early from cutout processing.")
                 sys.exit(0)
 
-        img: np.ndarray = bands.astype(np.uint16)
+        img: np.ndarray = bands.astype(np.uint8)
         # make the img in CV uint16 format
-        img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
+        # img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
         # img: np.ndarray = self.get_tile_png(row, column)
 
         out_path = out_dir.parent / "saved" / f"tile_{row}_{column}.png"
@@ -324,6 +327,8 @@ class OpenCVApproach:
             print("Using existing output directory:", self.output.absolute())
 
         print("🆀 Running the image splitter with OpenCV approach...")
+
+        print(f"Input orthomosaic: {self.output / 'orthomosaic.tiff'}")
 
         # Split the generated orthomosaic into tiles using OpenCV approach
         split_geotiff(
@@ -392,7 +397,7 @@ if __name__ == "__main__":
         ApproachArgs(
             orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_mid.tif",
             reference_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9.png",
-            annotated_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9_annotated_v2.png",
+            annotated_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9_annotated.png",
             ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
             png_dir = base_dir / "Orthomosaics/NRN_mid/pngs",
             run_cdc = True,

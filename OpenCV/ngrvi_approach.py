@@ -76,6 +76,104 @@ class NgrviApproach:
         return mask, ngrdi_u16
 
 
+    def extract_segmented_objects_old(self,
+                                  image: MatLike,
+                                  mask: MatLike,
+                                  row: int,
+                                  column: int,
+                                  min_area: int = MIN_AREA_PX,
+                                  max_area: int = MAX_AREA_PX,
+                                  export_masks = False) -> tuple[list[np.ndarray], list[tuple[int, int, int, int]]]:
+        """
+        Extract segmented objects from an image using a binary mask.
+        The limits were chosen based on the calculated areas in qgis from the ground truth shapefiles.
+
+        Args:
+            image (MatLike): HxW or HxWxC numpy array
+            mask (MatLike):  HxW binary mask (0 or 255)
+            min_area (int): Minimum area (in pixels) for an object to be considered
+
+        Return:
+            List[np.ndarray]: list of numpy arrays, one per segmented object
+        """
+
+        # Ensure binary uint8 mask
+        # cv.imshow(f"Original Mask for tile {row}_{column}", mask)
+        mask_bin = (mask > 0).astype(np.uint8)
+
+        # https://docs.opencv.org/3.4/d3/dc0/group__imgproc__shape.html#gaedef8c7340499ca391d459122e51bef5
+        num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(mask_bin)
+        if DBG:
+            print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
+
+        # print(f"Image size: {image.shape}, Mask size: {mask.shape}, Found {num_labels - 1} objects.")
+        if image.shape[:2] != mask.shape[:2]:
+            return [], []
+
+        def process_label_segmentation(label):
+            obj_mask = (labels == label).astype(np.uint8)
+
+            x, y, w, h, _ = stats[label]
+            area = w * h
+
+            if area < min_area or max_area < area:
+                # print(f"Obj {label} has area {area} which is outside the limits ({min_area}, {max_area}). Skipping.")
+                # print(f"Obj shape: {obj_mask.shape}, dtype: {obj_mask.dtype}, unique values: {np.unique(obj_mask)}")
+                # print(f"Object with bbox {(x, y, w, h)} in tile_{row}_{column} has area {area} which is outside the limits ({min_area}, {max_area}). Skipping.")
+                return None
+
+            # TOP LEFT
+            nx1 = x / image.shape[1]
+            ny1 = y / image.shape[0]
+
+            # TOP RIGHT
+            nx2 = (x + w) / image.shape[1]
+            ny2 = y / image.shape[0]
+
+            # BOTTOM RIGHT
+            nx3 = (x + w) / image.shape[1]
+            ny3 = (y + h) / image.shape[0]
+
+            # BOTTOM LEFT
+            nx4 = x / image.shape[1]
+            ny4 = (y + h) / image.shape[0]
+
+            segm = (nx1, ny1, nx2, ny2, nx3, ny3, nx4, ny4)
+            bbox = (x, y, w, h)
+            if export_masks:
+                obj = obj_mask
+            else:
+                if image.ndim == 2:
+                    obj = image * obj_mask
+                else:
+                    obj = image * obj_mask[:, :, None]
+
+            # cv.imshow(f"Object mask for label {label} in tile {row}_{column}", obj*255)
+
+            return (segm, bbox, obj)
+
+
+        objects = []
+        bboxes = []
+
+        with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
+            results = []
+            with ThreadPoolExecutor() as executor:
+                results = list(executor.map(process_label_segmentation, range(1, num_labels)))
+
+            for res in results:
+                if res is None:
+                    continue
+
+                segm, bbox, obj = res
+                x1, y1, x2, y2, x3, y3, x4, y4 = segm
+                f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+                bboxes.append(bbox)
+                objects.append(obj)
+
+        return objects, bboxes
+
+
     def extract_segmented_objects(self,
                                   image: MatLike,
                                   mask: MatLike,
@@ -282,58 +380,58 @@ class NgrviApproach:
         #     print(f"Generating bounding box masks for tile_{row}_{column}...")
         # rects = self.generate_bbox_mask(masks, bboxes)
 
-        def _process_single(res, bands, pipeline, extract_feat_vector):
-            """Process one result object. Returns the label line or None."""
-            if res is None:
-                return None, "skip"
+        # def _process_single(res, bands, pipeline, extract_feat_vector):
+        #     """Process one result object. Returns the label line or None."""
+        #     if res is None:
+        #         return None, "skip"
 
-            segm, bbox, segm_mask = res
-            vec   = extract_feat_vector(bands, segm_mask)
-            pred  = pipeline.predict(vec.reshape(1, -1))[0]
-            score = pipeline.decision_function(vec.reshape(1, -1))[0]
-            in_group = (pred == 1)
+        #     segm, bbox, segm_mask = res
+        #     vec   = extract_feat_vector(bands, segm_mask)
+        #     pred  = pipeline.predict(vec.reshape(1, -1))[0]
+        #     score = pipeline.decision_function(vec.reshape(1, -1))[0]
+        #     in_group = (pred == 1)
 
-            if in_group:
-                x1, y1, x2, y2, x3, y3, x4, y4 = segm
-                line = f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n"
-                return line, score
-            return None, score
+        #     if in_group:
+        #         x1, y1, x2, y2, x3, y3, x4, y4 = segm
+        #         line = f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n"
+        #         return line, score
+        #     return None, score
 
-        label_path = self.labels_dir / f"tile_{row}_{column}.txt"
+        # label_path = self.labels_dir / f"tile_{row}_{column}.txt"
 
-        with ThreadPoolExecutor() as executor:
-            futures = {}
-            for res in results:
-                try:
-                    fut = executor.submit(
-                        _process_single, res, bands, self.pipeline, self.extract_feat_vector
-                    )
+        # with ThreadPoolExecutor() as executor:
+        #     futures = {}
+        #     for res in results:
+        #         try:
+        #             fut = executor.submit(
+        #                 _process_single, res, bands, self.pipeline, self.extract_feat_vector
+        #             )
 
-                    futures[fut] = res
-                except Exception as e:
-                    print(f"Error submitting task for tile_{row}_{column}: {e}")
-                    continue
+        #             futures[fut] = res
+        #         except Exception as e:
+        #             print(f"Error submitting task for tile_{row}_{column}: {e}")
+        #             continue
 
-            lines = []
-            for future in as_completed(futures):
-                try:
-                    if future is None:
-                        continue
+        #     lines = []
+        #     for future in as_completed(futures):
+        #         try:
+        #             if future is None:
+        #                 continue
 
-                    line, score = future.result()
-                    if line is None and score == "skip":
-                        print(f"Warning: No valid object in tile_{row}_{column}. Skipping.")
-                    elif line is not None:
-                        print(f"  tile_{row}_{column}: IN-GROUP ✓  (score: {score:+.4f})")
-                        lines.append(line)
-                except Exception as e:
-                    print(f"Error processing result for tile_{row}_{column}: {e}")
-                    continue
+        #             line, score = future.result()
+        #             if line is None and score == "skip":
+        #                 print(f"Warning: No valid object in tile_{row}_{column}. Skipping.")
+        #             elif line is not None:
+        #                 print(f"  tile_{row}_{column}: IN-GROUP ✓  (score: {score:+.4f})")
+        #                 lines.append(line)
+        #         except Exception as e:
+        #             print(f"Error processing result for tile_{row}_{column}: {e}")
+        #             continue
 
-        # Write all in-group results at once after all futures complete
-        if lines:
-            with open(label_path, "w") as f:
-                f.writelines(lines)
+        # # Write all in-group results at once after all futures complete
+        # if lines:
+        #     with open(label_path, "w") as f:
+        #         f.writelines(lines)
 
         # with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
         #     for res in results:
