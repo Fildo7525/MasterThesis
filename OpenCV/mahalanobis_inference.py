@@ -322,8 +322,9 @@ if __name__ == "__main__":
 
     gdf = gpd.read_file(shp_path)
 
-    distances = []
-    labels    = []
+    distances   = []
+    labels      = []
+    scored_idxs = []   # track original GDF row indices for the shapefile export
 
     with rasterio.open(ortho_path) as src:
         if gdf.crs != src.crs:
@@ -335,6 +336,7 @@ if __name__ == "__main__":
                 continue
             distances.append(result.distance)
             labels.append(result.is_inlier)
+            scored_idxs.append(idx)
             print(result)
 
     distances = np.array(distances)
@@ -342,3 +344,18 @@ if __name__ == "__main__":
     print(f"\nInliers : {labels.sum()} / {len(labels)}")
     print(f"Outliers: {(~labels).sum()} / {len(labels)}")
     print(f"Distance range: [{distances.min():.4f}, {distances.max():.4f}]")
+
+    # ── write inlier shapefile ────────────────────────────────────────────────
+    # Attach scores back to the original GDF rows that were successfully scored,
+    # then filter to inliers only and write out.
+    scored_gdf = gdf.loc[scored_idxs].copy()
+    scored_gdf["mahal_dist"] = distances          # useful for downstream inspection
+    scored_gdf["is_inlier"]  = labels
+
+    inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].copy()
+    inlier_gdf = inlier_gdf.drop(columns=["is_inlier"])  # clean up boolean column
+
+    out_shp = shp_path.parent / "inliers_shapefile.shp"
+    inlier_gdf.to_file(out_shp)
+    print(f"\nInlier shapefile saved -> {out_shp}")
+    print(f"  {len(inlier_gdf)} / {len(gdf)} polygons kept")
