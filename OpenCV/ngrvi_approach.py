@@ -156,11 +156,11 @@ class NgrviApproach:
         objects = []
         bboxes = []
 
-        with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
-            results = []
-            with ThreadPoolExecutor() as executor:
-                results = list(executor.map(process_label_segmentation, range(1, num_labels)))
+        results = []
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(process_label_segmentation, range(1, num_labels)))
 
+        with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
             for res in results:
                 if res is None:
                     continue
@@ -181,7 +181,8 @@ class NgrviApproach:
                                   column: int,
                                   min_area: int = MIN_AREA_PX,
                                   max_area: int = MAX_AREA_PX,
-                                  export_masks = False):
+                                  export_masks = False,
+                                  save_labels = False):
         """
         Extract segmented objects from an image using a binary mask.
         The limits were chosen based on the calculated areas in qgis from the ground truth shapefiles.
@@ -262,13 +263,28 @@ class NgrviApproach:
         #     results.append(res)
 
         out = []
-        for i, res in enumerate(results):
-            if res is None:
-                continue
-            # cv.imshow(f"Mask {i} for object in tile", res[2]*255)
-            # print(f"Object with bbox {res[1]} passed area filter in tile_{row}_{column}")
-            out.append(res)
-        return out
+        if save_labels:
+            with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
+                for i, res in enumerate(results):
+                    if res is None:
+                        continue
+                    # cv.imshow(f"Mask {i} for object in tile", res[2]*255)
+                    # print(f"Object with bbox {res[1]} passed area filter in tile_{row}_{column}")
+
+                    segm, *_ = res
+                    x1, y1, x2, y2, x3, y3, x4, y4 = segm
+                    f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+
+                    out.append(res)
+                return out
+        else:
+            for i, res in enumerate(results):
+                if res is None:
+                    continue
+                # cv.imshow(f"Mask {i} for object in tile", res[2]*255)
+                # print(f"Object with bbox {res[1]} passed area filter in tile_{row}_{column}")
+                out.append(res)
+            return out
 
 
         # with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
@@ -353,7 +369,7 @@ class NgrviApproach:
         if DBG:
             print(f"Extracting segmented objects from tile_{row}_{column}...")
         # cv.imshow(f"Mask for object in tile {row}_{column}", ngrvi_mask)
-        results = self.extract_segmented_objects(self.rio2cv(bands), ngrvi_mask, row, column, export_masks=True)
+        results = self.extract_segmented_objects(self.rio2cv(bands), ngrvi_mask, row, column, export_masks=True, save_labels=True)
         # if DBG:
         #     print(f"Extracted {len(masks)} objects from tile_{row}_{column} with NGRVI mask")
         # if masks == []:
@@ -460,8 +476,8 @@ class NgrviApproach:
         #                 f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
 
         # return objects, bboxes
-        if DBG:
-            print(f"Extracting features from segmented objects in tile_{row}_{column}...")
+        # if DBG:
+        #     print(f"Extracting features from segmented objects in tile_{row}_{column}...")
 
 
         # return mask

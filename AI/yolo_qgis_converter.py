@@ -355,7 +355,8 @@ class YOLOShapefileConverter:
 
         for i, poly in enumerate(polygons):
             if poly.area < min_area or poly.area > max_area:
-                print(f"Warning: Skipping polygon with area {poly.area:.6f}")
+                # print(f"Warning: Skipping polygon with area {poly.area:.6f}")
+                continue
             else:
                 filtered_polygons.append(poly)
                 filtered_class_ids.append(class_ids[i])
@@ -535,10 +536,10 @@ class YOLOShapefileConverter:
                     arr = [pixel_coords[i] for i in order]
 
                     if len(arr) != 8:
-                        print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
+                        # print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
                         continue
 
-                    print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
+                    # print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
 
                 elif database_model == YoloDatasetModel.OBB:
                     # For OBB, use the bounding box of the clipped geometry
@@ -574,7 +575,7 @@ class YOLOShapefileConverter:
                 # For OBB, check only the first 4 values (center and dimensions), angle can be any value
                 array = arr[:4] if database_model == YoloDatasetModel.OBB else arr
                 if not all(0.0 <= v <= 1.0 for v in array):
-                    print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
+                    # print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
                     continue
 
                 coords = ' '.join([f"{v:.6f}" for v in arr])
