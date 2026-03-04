@@ -298,64 +298,163 @@ def _extract_vec(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Quick demo
+# Multiprocessing support
+# Each worker opens its OWN rasterio handle — sharing one handle across
+# processes is not safe and causes corrupted reads.
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+# Module-level worker state — populated once per worker via the initializer,
+# so heavy objects (FeatureExtractor, NgrviApproach, scaler, PCA) are loaded
+# only once per process instead of once per polygon.
+_worker_infer      = None
+_worker_ortho_path = None
+
+
+def _worker_init(out_dir, accept_pct, ortho_path, band_indices, rectangle):
+    """Runs once when a worker process starts."""
+    global _worker_infer, _worker_ortho_path
+    _worker_infer      = MahalanobisInference.from_dir(
+        out_dir=out_dir, accept_pct=accept_pct,
+        band_indices=band_indices, rectangle=rectangle,
+    )
+    _worker_ortho_path = ortho_path
+
+
+def _worker_score(task):
+    """
+    Score a single geometry inside a worker process.
+
+    task = (original_row_index, geometry_wkb_bytes)
+    WKB is used because shapely geometries are not reliably picklable on all
+    platforms when sent across process boundaries.
+
+    Returns (idx, distance, is_inlier)  or  (idx, None, None) if too small.
+    """
+    from shapely import wkb as shapely_wkb
+    idx, geom_wkb = task
+    geometry = shapely_wkb.loads(geom_wkb)
+    # Each worker opens its own file handle — no sharing, no corruption.
+    with rasterio.open(_worker_ortho_path) as src:
+        result = _worker_infer.predict_polygon(geometry, src)
+    if result is None:
+        return (idx, None, None)
+    return (idx, result.distance, result.is_inlier)
+
+
+def score_shapefile_parallel(
+    ortho_path,
+    shp_path,
+    out_dir     = "mahal_output",
+    accept_pct  = "95pct",
+    band_indices = None,
+    rectangle   = True,
+    n_workers   = 4,
+    chunk_size  = 8,
+):
+    """
+    Score every polygon in a shapefile using a multiprocessing pool.
+
+    Returns
+    -------
+    distances   : np.ndarray of float
+    labels      : np.ndarray of bool  (True = inlier)
+    scored_idxs : list of original GDF row indices
+    gdf         : the (possibly reprojected) GeoDataFrame
+    """
+    import multiprocessing as mp
+    from shapely import wkb as shapely_wkb
     import geopandas as gpd
-    from pathlib import Path
     from tqdm import tqdm
 
-    HOME = Path.home()
-
-    # ── load inference engine ─────────────────────────────────
-    infer = MahalanobisInference.from_dir(
-        out_dir    = "mahal_output",
-        accept_pct = "95pct",       # use "100pct" to accept everything seen in training
-    )
-    print(f"Threshold: {infer.threshold:.4f}")
-
-    # ── score a new orthomosaic + shapefile ───────────────────
-    base_dir = Path.home() / "SDU/MasterThesis"
-    ortho_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif"
-    shp_path   = base_dir / "OpenCV/report_results/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp"
-
     gdf = gpd.read_file(shp_path)
+    with rasterio.open(ortho_path) as src:
+        if gdf.crs != src.crs:
+            print(f"  Reprojecting {gdf.crs} -> {src.crs}")
+            gdf = gdf.to_crs(src.crs)
+
+    # Serialise geometries to WKB so they can be pickled across processes
+    tasks = [
+        (idx, shapely_wkb.dumps(row.geometry))
+        for idx, row in gdf.iterrows()
+        if row.geometry is not None and not row.geometry.is_empty
+    ]
+    print(f"  Scoring {len(tasks)} polygons on {n_workers} workers ...")
 
     distances   = []
     labels      = []
-    scored_idxs = []   # track original GDF row indices for the shapefile export
+    scored_idxs = []
 
-    with rasterio.open(ortho_path) as src:
-        if gdf.crs != src.crs:
-            gdf = gdf.to_crs(src.crs)
-
-        for idx, row in tqdm(gdf.iterrows(), total=len(gdf), desc="Scoring"):
-            result = infer.predict_polygon(row.geometry, src)
-            if result is None:
+    # "spawn" is safest: each worker is a clean Python process with no
+    # inherited file handles or GDAL state from the parent.
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(
+        processes   = n_workers,
+        initializer = _worker_init,
+        initargs    = (str(out_dir), accept_pct,
+                       str(ortho_path), band_indices, rectangle),
+    ) as pool:
+        for idx, dist, is_inlier in tqdm(
+            pool.imap(_worker_score, tasks, chunksize=chunk_size),
+            total=len(tasks),
+            desc="Scoring",
+        ):
+            if dist is None:
                 continue
-            distances.append(result.distance)
-            labels.append(result.is_inlier)
+            distances.append(dist)
+            labels.append(is_inlier)
             scored_idxs.append(idx)
-            print(result)
 
-    distances = np.array(distances)
-    labels    = np.array(labels)
-    print(f"\nInliers : {labels.sum()} / {len(labels)}")
+    return np.array(distances), np.array(labels), scored_idxs, gdf
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Demo
+# ─────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import os
+    import time
+    from pathlib import Path
+
+    HOME     = Path.home()
+    base_dir = HOME / "SDU/MasterThesis"
+
+    ORTHO_PATH = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif"
+    SHP_PATH   = base_dir / "OpenCV/report_results/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp"
+    OUT_DIR    = "mahal_output"
+    ACCEPT_PCT = "95pct"
+
+    cpu_count = os.cpu_count() or 1
+    N_WORKERS  = max(1, cpu_count - 1)   # leave one core for the OS
+
+    print(f"Using {N_WORKERS} worker processes")
+
+    t0 = time.perf_counter()
+    distances, labels, scored_idxs, gdf = score_shapefile_parallel(
+        ortho_path   = ORTHO_PATH,
+        shp_path     = SHP_PATH,
+        out_dir      = OUT_DIR,
+        accept_pct   = ACCEPT_PCT,
+        n_workers    = N_WORKERS,
+        rectangle    = False,
+    )
+    elapsed = time.perf_counter() - t0
+
+    print(f"\nScored {len(distances)} polygons in {elapsed:.1f}s "
+          f"({len(distances)/max(elapsed,1e-9):.1f} polygons/s)")
+    print(f"Inliers : {labels.sum()} / {len(labels)}")
     print(f"Outliers: {(~labels).sum()} / {len(labels)}")
-    print(f"Distance range: [{distances.min():.4f}, {distances.max():.4f}]")
+    if len(distances):
+        print(f"Distance range: [{distances.min():.4f}, {distances.max():.4f}]")
 
-    # ── write inlier shapefile ────────────────────────────────────────────────
-    # Attach scores back to the original GDF rows that were successfully scored,
-    # then filter to inliers only and write out.
+    # ── write inlier shapefile ────────────────────────────────
     scored_gdf = gdf.loc[scored_idxs].copy()
-    scored_gdf["mahal_dist"] = distances          # useful for downstream inspection
+    scored_gdf["mahal_dist"] = distances
     scored_gdf["is_inlier"]  = labels
 
-    inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].copy()
-    inlier_gdf = inlier_gdf.drop(columns=["is_inlier"])  # clean up boolean column
+    inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].drop(columns=["is_inlier"])
 
-    out_shp = shp_path.parent / "inliers_shapefile.shp"
+    out_shp = SHP_PATH.parent / "inliers_shapefile.shp"
     inlier_gdf.to_file(out_shp)
     print(f"\nInlier shapefile saved -> {out_shp}")
     print(f"  {len(inlier_gdf)} / {len(gdf)} polygons kept")
