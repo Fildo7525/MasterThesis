@@ -133,10 +133,15 @@ class FeatureExtractor:
             rectangle: bool = True,
     ) -> dict[str, dict[str, float] | None]:
 
+        # print(f"""
+        # Processing source with shape: {src.shape if hasattr(src, 'shape') else 'Unknown'},
+        # type: {type(src)},
+        # dtype: {src.dtypes if hasattr(src, 'dtypes') else 'Unknown'}
+        # """)
         # Determine which bands to process
         if band_indices is None:
             if type(src) is DatasetReader:
-                band_indices = list(range(src.count))
+                band_indices = list(1, range(src.count+1))
             else:
                 # the src is np.ndarray with shape (bands, rows, cols)
                 band_indices = list(range(src.shape[0]))
