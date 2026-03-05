@@ -14,12 +14,28 @@ from shapely.strtree import STRtree
 # ------------------------------
 # Paths
 # ------------------------------
-image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/images/val"
-label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/dataset/labels/val"
-nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/translated_rotated/translated_250x_250y_rotated_45/processed_output/nir"
-predictions_dir = "/home/samuel/test/MasterThesis/runs/obb/inference/val_predictions/labels"
+TYPE = "AABB"  # "AABB" or "OBB"
+image_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
+label_dir = "/home/samuel/test/MasterThesis/Orthomosaics/old_data_AABB/large/translated_rotated/translated_500x_500y_rotated_45/labels_new"
+# NOTE: nir_output_dir must be unique per dataset/augmentation variant.
+# Reusing the same dir across different image_dirs will cause stale NIR
+# cache hits and display the wrong image for a given label file.
+nir_output_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/translated_rotated/translated_500x_500y_rotated_45/processed_output/nir"
+predictions_dir = "/home/samuel/test/MasterThesis/runs/obb/inference/test_predictions/labels"
 COMBINATION = "NIR_RED_NGRDI"
 extension = "png"
+DO_GENERATE_NIR_PNGS = True
+
+
+# Add this check at the top of the script
+image_dir = Path(image_dir)
+label_dir = Path(label_dir)
+
+# Warn if label_dir doesn't share a common parent with image_dir
+if image_dir.parts[:-2] != label_dir.parts[:-2]:
+    print(f"WARNING: image_dir and label_dir may not correspond:")
+    print(f"  image_dir: {image_dir}")
+    print(f"  label_dir: {label_dir}")
 
 # Create output directory if it doesn't exist
 Path(nir_output_dir).mkdir(parents=True, exist_ok=True)
@@ -42,7 +58,7 @@ class InteractiveBBoxViewer:
         self.h = 0
         self.w = 0
         self.offset = 20  # pixels for label text offset from bbox  
-        self.show_predictions_global = True  # Set to False to hide predictions by default
+        self.show_predictions_global = False  # Set to False to hide predictions by default
         
         # Drawing state
         self.mode = 'select'  # 'select', 'draw_rect', or 'draw_rotated'
@@ -319,14 +335,22 @@ class InteractiveBBoxViewer:
             )
             self.ax.add_patch(new_poly)
 
-            coords = pred_data['coords']
-            x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = coords
 
-            label_line = (
-                f"{pred_data['class']} "
-                f"{x_1:.6f} {y_1:.6f} {x_2:.6f} {y_2:.6f} "
-                f"{x_3:.6f} {y_3:.6f} {x_4:.6f} {y_4:.6f}"
-            )
+            # Replace the label_line construction in both methods:
+            if TYPE == "AABB":
+                pts = pred_data['pts']
+                xs, ys = pts[:,0] / self.w, pts[:,1] / self.h
+                cx, cy = xs.mean(), ys.mean()
+                w, h   = xs.max() - xs.min(), ys.max() - ys.min()
+                label_line = f"{pred_data['class']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
+                coords = (cx, cy, w, h)
+            else:
+                coords = pred_data['coords']
+                x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = coords
+                label_line = (f"{pred_data['class']} "
+                            f"{x_1:.6f} {y_1:.6f} {x_2:.6f} {y_2:.6f} "
+                  f"{x_3:.6f} {y_3:.6f} {x_4:.6f} {y_4:.6f}")
+                
 
             gt_bbox_data = {
                 'line': label_line,
@@ -444,12 +468,21 @@ class InteractiveBBoxViewer:
                                edgecolor='red', linewidth=2, picker=True)
             self.ax.add_patch(new_poly)
 
-            coords = bbox_data['coords']
-            x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = coords
-            label_line = (f"{bbox_data['class']} "
-                          f"{x_1:.6f} {y_1:.6f} {x_2:.6f} {y_2:.6f} "
-                          f"{x_3:.6f} {y_3:.6f} {x_4:.6f} {y_4:.6f}")
-
+            # Replace the label_line construction in both methods:
+            if TYPE == "AABB":
+                pts = bbox_data['pts']
+                xs, ys = pts[:,0] / self.w, pts[:,1] / self.h
+                cx, cy = xs.mean(), ys.mean()
+                w, h   = xs.max() - xs.min(), ys.max() - ys.min()
+                label_line = f"{bbox_data['class']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
+                coords = (cx, cy, w, h)
+            else:
+                coords = bbox_data['coords']
+                x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = coords
+                label_line = (f"{bbox_data['class']} "
+                            f"{x_1:.6f} {y_1:.6f} {x_2:.6f} {y_2:.6f} "
+                  f"{x_3:.6f} {y_3:.6f} {x_4:.6f} {y_4:.6f}")
+                
             gt_bbox_data = {
                 'line': label_line,
                 'class': bbox_data['class'],
@@ -556,7 +589,7 @@ class InteractiveBBoxViewer:
         pred_found = False
         pred_label_path = None
         # Per-tile prediction file — use first match, warn if multiple found
-        pred_matches = list(Path(predictions_dir).glob(f"{tile_name}_*.txt"))
+        pred_matches = list(Path(predictions_dir).glob(f"{tile_name}*.txt"))
         if pred_matches:
             if len(pred_matches) > 1:
                 print(f"Warning: multiple prediction files found for {tile_name}, using first: {pred_matches[0]}")
@@ -568,11 +601,18 @@ class InteractiveBBoxViewer:
         
         print(f"Loading {tile_name}... ({idx+1}/{len(self.tif_files)})")
         
-        if extension.lower() == "png":
+        if not DO_GENERATE_NIR_PNGS:
             nir_png_path = image_path
         else:
             try:
                 with rasterio.open(image_path) as src:
+                    tags = src.tags()
+                    print(f"Actual bounds  : {src.bounds}")
+                    print(f"ORIGINAL_X_MIN : {tags.get('ORIGINAL_X_MIN')}")
+                    print(f"ORIGINAL_Y_MIN : {tags.get('ORIGINAL_Y_MIN')}")
+                    print(f"ORIGINAL_X_MAX : {tags.get('ORIGINAL_X_MAX')}")
+                    print(f"ORIGINAL_Y_MAX : {tags.get('ORIGINAL_Y_MAX')}")
+                    print(f"ROTATION_ANGLE : {tags.get('ROTATION_ANGLE')}")
                     img = src.read([7])
                     img = np.transpose(img, (1, 2, 0))
                     img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
@@ -600,50 +640,16 @@ class InteractiveBBoxViewer:
         self.cancel_drawing(None)
         
         # Load and draw ground truth bounding boxes (red)
-        if Path(label_path).exists():
-            with open(label_path, "r") as f:
-                for line_idx, line in enumerate(f):
-                    parts = line.strip().split()
-                    if len(parts) < 9:
-                        continue
-                    
-                    cls = int(parts[0])
-                    x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = map(float, parts[1:9])
-                    
-                    pts = np.array([
-                        [x_1 * self.w, y_1 * self.h],
-                        [x_2 * self.w, y_2 * self.h],
-                        [x_3 * self.w, y_3 * self.h],
-                        [x_4 * self.w, y_4 * self.h]
-                    ])
-                    
-                    poly = Polygon(pts, closed=True, fill=False,
-                                   edgecolor='red', linewidth=2, picker=True)
-                    self.ax.add_patch(poly)
-                    
-                    bbox_data = {
-                        'line': line.strip(),
-                        'class': cls,
-                        'coords': (x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4),
-                        'pts': pts,
-                        'line_idx': line_idx
-                    }
-                    self.bboxes.append([poly, bbox_data, False])
-        else:
-            print(f"Note: GT label file not found: {label_path}")
-            
-        if pred_found and self.show_predictions_global:
-            if Path(pred_label_path).exists():
-                print(f"Note: Prediction file found: {pred_label_path}")
-                with open(pred_label_path, "r") as f:
+        if TYPE == "OBB":
+            if Path(label_path).exists():
+                with open(label_path, "r") as f:
                     for line_idx, line in enumerate(f):
                         parts = line.strip().split()
-                        if len(parts) < 10:
+                        if len(parts) < 9:
                             continue
                         
                         cls = int(parts[0])
                         x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = map(float, parts[1:9])
-                        prediction_score = float(parts[9])
                         
                         pts = np.array([
                             [x_1 * self.w, y_1 * self.h],
@@ -653,7 +659,7 @@ class InteractiveBBoxViewer:
                         ])
                         
                         poly = Polygon(pts, closed=True, fill=False,
-                                    edgecolor='white', linewidth=2, picker=True)
+                                    edgecolor='red', linewidth=2, picker=True)
                         self.ax.add_patch(poly)
                         
                         bbox_data = {
@@ -662,13 +668,131 @@ class InteractiveBBoxViewer:
                             'coords': (x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4),
                             'pts': pts,
                             'line_idx': line_idx,
-                            'confidence': prediction_score,
-                            'text': self.ax.text(pts[2][0], pts[2][1] - self.offset, f"{cls} ({prediction_score:.2f})", color='white', fontsize=8, backgroundcolor='black')
+                            'format': 'obb'
                         }
-                        self.pred_bboxes.append([poly, bbox_data, False])
+                        self.bboxes.append([poly, bbox_data, False])
             else:
-                print(f"Note: Prediction file not found: {pred_label_path}")
-        
+                print(f"Note: GT label file not found: {label_path}")
+                
+            if pred_found and self.show_predictions_global:
+                if Path(pred_label_path).exists():
+                    print(f"Note: Prediction file found: {pred_label_path}")
+                    with open(pred_label_path, "r") as f:
+                        for line_idx, line in enumerate(f):
+                            parts = line.strip().split()
+                            if len(parts) < 10:
+                                continue
+                            
+                            cls = int(parts[0])
+                            x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4 = map(float, parts[1:9])
+                            prediction_score = float(parts[9]) if len(parts) > 9 else 0.0
+                            
+                            pts = np.array([
+                                [x_1 * self.w, y_1 * self.h],
+                                [x_2 * self.w, y_2 * self.h],
+                                [x_3 * self.w, y_3 * self.h],
+                                [x_4 * self.w, y_4 * self.h]
+                            ])
+                            
+                            poly = Polygon(pts, closed=True, fill=False,
+                                        edgecolor='white', linewidth=2, picker=True)
+                            self.ax.add_patch(poly)
+                            
+                            bbox_data = {
+                                'line': line.strip(),
+                                'class': cls,
+                                'coords': (x_1, y_1, x_2, y_2, x_3, y_3, x_4, y_4),
+                                'pts': pts,
+                                'line_idx': line_idx,
+                                'format': 'obb',
+                                'confidence': prediction_score,
+                                'text': self.ax.text(pts[2][0], pts[2][1] - self.offset, f"{cls} ({prediction_score:.2f})", color='white', fontsize=8, backgroundcolor='black')
+                            }
+                            self.pred_bboxes.append([poly, bbox_data, False])
+                else:
+                    print(f"Note: Prediction file not found: {pred_label_path}")
+
+        elif TYPE == "AABB":
+            if Path(label_path).exists():
+                with open(label_path, "r") as f:
+                    content = f.read()
+                    print(f"Label file content: '{content}'")
+                    print(f"Label file size: {Path(label_path).stat().st_size} bytes")
+                    f.seek(0)
+                    for line_idx, line in enumerate(f):
+                        parts = line.strip().split()
+                        if len(parts) != 5:  # class cx cy w h
+                            continue
+                        
+                        cls = int(parts[0])
+                        cx, cy, w, h = map(float, parts[1:5])
+
+
+                        # Convert to corner points for display
+                        x1, y1 = (cx - w/2) * self.w, (cy - h/2) * self.h
+                        x2, y2 = (cx + w/2) * self.w, (cy - h/2) * self.h
+                        x3, y3 = (cx + w/2) * self.w, (cy + h/2) * self.h
+                        x4, y4 = (cx - w/2) * self.w, (cy + h/2) * self.h
+
+                        pts = np.array([[x1,y1],[x2,y2],[x3,y3],[x4,y4]])
+
+                        poly = Polygon(pts, closed=True, fill=False,
+                                    edgecolor='red', linewidth=2, picker=True)
+                        self.ax.add_patch(poly)
+
+                        bbox_data = {
+                            'line': line.strip(),
+                            'class': cls,
+                            'coords': (cx, cy, w, h),
+                            'pts': pts,
+                            'line_idx': line_idx,
+                            'format': 'aabb'
+}
+                        self.bboxes.append([poly, bbox_data, False])
+            else:
+                print(f"Note: GT label file not found: {label_path}")
+                
+            if pred_found and self.show_predictions_global:
+                if Path(pred_label_path).exists():
+                    print(f"Note: Prediction file found: {pred_label_path}")
+                    with open(pred_label_path, "r") as f:
+                        f.seek(0)
+                        for line_idx, line in enumerate(f):
+                            parts = line.strip().split()
+                            if len(parts) != 5:  # class cx cy w h
+                                continue
+                                
+                            cls = int(parts[0])
+                            cx, cy, w, h = map(float, parts[1:5])
+                            prediction_score = float(parts[5]) if len(parts) > 5 else 0.0
+
+                            # Convert to corner points for display
+                            x1, y1 = (cx - w/2) * self.w, (cy - h/2) * self.h
+                            x2, y2 = (cx + w/2) * self.w, (cy - h/2) * self.h
+                            x3, y3 = (cx + w/2) * self.w, (cy + h/2) * self.h
+                            x4, y4 = (cx - w/2) * self.w, (cy + h/2) * self.h
+
+                            pts = np.array([[x1,y1],[x2,y2],[x3,y3],[x4,y4]])
+                                    
+                            poly = Polygon(pts, closed=True, fill=False,
+                                        edgecolor='white', linewidth=2, picker=True)
+                            self.ax.add_patch(poly)
+                            
+                            bbox_data = {
+                                'line': line.strip(),
+                                'class': cls,
+                                'coords': (cx, cy, w, h),
+                                'pts': pts,
+                                'line_idx': line_idx,
+                                'format': 'aabb',
+                                'confidence': prediction_score,
+                                'text': self.ax.text(pts[2][0], pts[2][1] - self.offset, f"{cls} ({prediction_score:.2f})", color='white', fontsize=8, backgroundcolor='black')
+                            }
+                            self.pred_bboxes.append([poly, bbox_data, False])
+    
+                else:
+                    print(f"Note: Prediction file not found: {pred_label_path}")
+                    
         self.update_gt_counter()
         self.fig.canvas.draw()
     
@@ -739,11 +863,6 @@ class InteractiveBBoxViewer:
         self.fig.canvas.draw()
 
     def join_polygons(self, event=None, iou_threshold=0.3):
-        """
-        Merge GT polygons of same class if IoU > threshold.
-        Resulting shape becomes minimum rotated rectangle of union.
-        """
-
         from shapely.geometry import Polygon as ShapelyPolygon
 
         if len(self.bboxes) < 2:
@@ -754,83 +873,70 @@ class InteractiveBBoxViewer:
         new_bboxes = []
 
         for i in range(len(self.bboxes)):
-
             if used[i]:
                 continue
 
             poly_patch_i, data_i, _ = self.bboxes[i]
             poly_i = ShapelyPolygon(data_i['pts'])
             cls_i = data_i['class']
-
             merged_poly = poly_i
 
             for j in range(i + 1, len(self.bboxes)):
-
                 if used[j]:
                     continue
-
                 poly_patch_j, data_j, _ = self.bboxes[j]
-
                 if data_j['class'] != cls_i:
                     continue
-
                 poly_j = ShapelyPolygon(data_j['pts'])
-
-                # Compute IoU
                 inter = merged_poly.intersection(poly_j).area
                 union = merged_poly.union(poly_j).area
-
                 if union == 0:
                     continue
-
-                iou = inter / union
-
-                if iou > iou_threshold:
+                if inter / union > iou_threshold:
                     merged_poly = merged_poly.union(poly_j)
                     used[j] = True
 
             used[i] = True
 
-            # Convert to minimum rotated rectangle
-            merged_poly = merged_poly.minimum_rotated_rectangle
-            merged_pts = np.array(merged_poly.exterior.coords[:-1])
+            # ── Build label depending on format ──────────────────────────────
+            if TYPE == "AABB":
+                aabb = merged_poly.envelope
+                merged_pts = np.array([
+                    [aabb.bounds[0], aabb.bounds[1]],
+                    [aabb.bounds[2], aabb.bounds[1]],
+                    [aabb.bounds[2], aabb.bounds[3]],
+                    [aabb.bounds[0], aabb.bounds[3]],
+                ])
+                xs = merged_pts[:, 0] / self.w
+                ys = merged_pts[:, 1] / self.h
+                cx, cy = xs.mean(), ys.mean()
+                bw, bh = xs.max() - xs.min(), ys.max() - ys.min()
+                label_line = f"{cls_i} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
+                bbox_data = {
+                    'line': label_line, 'class': cls_i,
+                    'coords': (cx, cy, bw, bh), 'pts': merged_pts,
+                    'line_idx': -1, 'format': 'aabb'
+                }
+            else:
+                merged_pts = np.array(merged_poly.minimum_rotated_rectangle.exterior.coords[:-1])
+                nc = []
+                for pt in merged_pts:
+                    nc.extend([pt[0] / self.w, pt[1] / self.h])
+                x1, y1, x2, y2, x3, y3, x4, y4 = nc
+                label_line = (f"{cls_i} {x1:.6f} {y1:.6f} {x2:.6f} {y2:.6f} "
+                            f"{x3:.6f} {y3:.6f} {x4:.6f} {y4:.6f}")
+                bbox_data = {
+                    'line': label_line, 'class': cls_i,
+                    'coords': (x1, y1, x2, y2, x3, y3, x4, y4), 'pts': merged_pts,
+                    'line_idx': -1, 'format': 'obb'
+                }
+            # ─────────────────────────────────────────────────────────────────
 
-            # Normalize coordinates
-            normalized_coords = []
-            for pt in merged_pts:
-                normalized_coords.extend([pt[0] / self.w, pt[1] / self.h])
-
-            x1, y1, x2, y2, x3, y3, x4, y4 = normalized_coords
-
-            label_line = (
-                f"{cls_i} "
-                f"{x1:.6f} {y1:.6f} {x2:.6f} {y2:.6f} "
-                f"{x3:.6f} {y3:.6f} {x4:.6f} {y4:.6f}"
-            )
-
-            # Create new matplotlib polygon
-            new_patch = Polygon(
-                merged_pts,
-                closed=True,
-                fill=False,
-                edgecolor='red',
-                linewidth=2,
-                picker=True
-            )
-
+            new_patch = Polygon(merged_pts, closed=True, fill=False,
+                                edgecolor='red', linewidth=2, picker=True)
             self.ax.add_patch(new_patch)
-
-            bbox_data = {
-                'line': label_line,
-                'class': cls_i,
-                'coords': (x1, y1, x2, y2, x3, y3, x4, y4),
-                'pts': merged_pts,
-                'line_idx': -1
-            }
-
             new_bboxes.append([new_patch, bbox_data, False])
 
-        # Remove old patches
         for poly_patch, _, _ in self.bboxes:
             try:
                 poly_patch.remove()
@@ -838,11 +944,10 @@ class InteractiveBBoxViewer:
                 pass
 
         self.bboxes = new_bboxes
-
         print(f"Joined polygons using IoU threshold {iou_threshold}")
         self.update_gt_counter()
         self.fig.canvas.draw()
-    
+        
     def finish_rectangle(self):
         if len(self.drawing_points) != 2:
             return
@@ -939,7 +1044,18 @@ class InteractiveBBoxViewer:
 
         all_labels = []
         for poly, bbox_data, _ in self.bboxes:
-            all_labels.append(bbox_data['line'])
+            if TYPE == "AABB" and bbox_data.get('format') == 'aabb':
+                cx, cy, w, h = bbox_data['coords']
+                all_labels.append(f"{bbox_data['class']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            elif TYPE == "AABB":
+                # Newly drawn box — convert pts back to cx cy w h
+                pts = bbox_data['pts']
+                xs, ys = pts[:,0] / self.w, pts[:,1] / self.h
+                cx, cy = xs.mean(), ys.mean()
+                w, h   = xs.max() - xs.min(), ys.max() - ys.min()
+                all_labels.append(f"{bbox_data['class']} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            else:
+                all_labels.append(bbox_data['line'])
 
         with open(label_path, "w") as f:
             for label in all_labels:
@@ -950,28 +1066,26 @@ class InteractiveBBoxViewer:
             self.bboxes[idx][1] = bbox_data
 
         self.deleted_bboxes = []
-
         print(f"Saved {len(all_labels)} labels to {label_path}")
         self.update_gt_counter()
-    
+        
     def reset_image(self, event):
         self.load_image(self.current_idx)
         self.update_gt_counter()
     
     def prev_image(self, event):
         if self.current_idx > 0:
-            self.join_polygons(None, iou_threshold=self.iou_threshold)  # merge all GT boxes to reset to original state
-            self.save_labels(None)  # auto-save before moving to previous image
+            self.join_polygons(None, iou_threshold=self.iou_threshold)
+            if self.bboxes or Path(f"{self.label_dir}/{Path(self.tif_files[self.current_idx]).stem}.txt").stat().st_size == 0:
+                self.save_labels(None)  # only save if we actually have boxes or file was already empty
             self.load_image(self.current_idx - 1)
- 
-
     
     def next_image(self, event):
         if self.current_idx < len(self.tif_files) - 1:
-            self.join_polygons(None, iou_threshold=self.iou_threshold)  # merge all GT boxes to reset to original state
-            self.save_labels(None)  # auto-save before moving to next image
+            self.join_polygons(None, iou_threshold=self.iou_threshold)
+            if self.bboxes or Path(f"{self.label_dir}/{Path(self.tif_files[self.current_idx]).stem}.txt").stat().st_size == 0:
+                self.save_labels(None)  # only save if we actually have boxes or file was already empty
             self.load_image(self.current_idx + 1)
-
 
 
 # Run the interactive viewer

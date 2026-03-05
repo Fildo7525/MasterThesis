@@ -407,10 +407,6 @@ class ImageProcessor:
         path = str(output_path / f"{output_name}_{ending}.png")
         cv.imwrite(path, img)
 
-
-
-
-
 # ---------------------------------------------------------------------
 #                            MAIN WORKFLOW
 # ---------------------------------------------------------------------

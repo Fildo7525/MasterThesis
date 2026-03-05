@@ -19,10 +19,11 @@ import geopandas as gpd
 import rasterio
 from tqdm import tqdm
 import numpy as np
+import os 
 
 class YoloDatasetModel(IntEnum):
-    OBB = 0
-    SEGMENTATION = 1
+    AABB = 0
+    OBB = 1
 
 
 class YoloConfidenceMerging(IntEnum):
@@ -251,9 +252,9 @@ class YOLOShapefileConverter:
             for line in f:
                 parts = line.strip().split()
                 if len(parts) == 5:
-                    model = YoloDatasetModel.OBB
+                    model = YoloDatasetModel.AABB
                 elif len(parts) == 9:
-                    model = YoloDatasetModel.SEGMENTATION
+                    model = YoloDatasetModel.OBB
                 else:
                     raise ValueError(f"Invalid YOLO annotation format: {line.strip()}")
 
@@ -268,7 +269,7 @@ class YOLOShapefileConverter:
                 x_bottom_left: float = 0.0
                 y_bottom_left: float = 0.0
 
-                if model == YoloDatasetModel.OBB and len(parts) == 5:
+                if model == YoloDatasetModel.AABB and len(parts) == 5:
                     x_center = float(parts[1]) * width
                     y_center = float(parts[2]) * height
                     width_box = float(parts[3]) * width
@@ -284,7 +285,7 @@ class YOLOShapefileConverter:
                     x_bottom_left = x_center - width_box / 2
                     y_bottom_left = y_center + height_box / 2
 
-                if model == YoloDatasetModel.SEGMENTATION and len(parts) == 9:
+                if model == YoloDatasetModel.OBB and len(parts) == 9:
                     x_top_left = float(parts[1]) * width
                     y_top_left = float(parts[2]) * height
                     x_top_right = float(parts[3]) * width
@@ -393,7 +394,7 @@ class YOLOShapefileConverter:
             shapefile_path: Input shapefile path
             reference_tif_file: Reference TIF file for the cutout
             output_yolo_label: Output YOLO label file path (.txt)
-            database_model: (YoloDatasetModel) YOLO dataset model (OBB or SEGMENTATION)
+            database_model: (YoloDatasetModel) YOLO dataset model (AABB or OBB)
         """
         # Validate paths
         shp_path = Path(shapefile_path)
@@ -423,6 +424,11 @@ class YOLOShapefileConverter:
 
         # Read shapefile
         gdf = gpd.read_file(shapefile_path)
+
+        print(f"Shapefile CRS: {gdf.crs}")
+        print(f"Tile CRS: {crs}")
+        print(f"Shapefile bounds: {gdf.total_bounds}")
+        print(f"Rotated polygon bounds: {rotated_polygon.bounds}")
 
         # Ensure CRS matches
         if gdf.crs != crs:
@@ -480,7 +486,7 @@ class YOLOShapefileConverter:
 
                 arr = []
 
-                if database_model == YoloDatasetModel.SEGMENTATION:
+                if database_model == YoloDatasetModel.OBB:
                     # If the image is rotated, we need to rotate the shapes to the same angle before converting to pixel
                     # coordinates
                     if angle != 0:
@@ -488,7 +494,7 @@ class YOLOShapefileConverter:
                         clipped = rotate(clipped, angle=angle, origin=original_polygon_center)
                         # print(f"Pionts: {[Point(x, y) for x, y in coords]}")
 
-                    # Extract actual polygon coordinates for segmentation
+                    # Extract actual polygon coordinates for OBB
                     # Handle different geometry types
                     if clipped.geom_type == 'Polygon':
                         coords = list(clipped.exterior.coords)
@@ -532,13 +538,13 @@ class YOLOShapefileConverter:
                     arr = [pixel_coords[i] for i in order]
 
                     if len(arr) != 8:
-                        print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
+                        print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for OBB.")
                         continue
 
                     print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
 
-                elif database_model == YoloDatasetModel.OBB:
-                    # For OBB, use the bounding box of the clipped geometry
+                elif database_model == YoloDatasetModel.AABB:
+                    # For AABB, use the bounding box of the clipped geometry
                     minx, miny, maxx, maxy = clipped.bounds
 
                     # Get corners in pixel space
@@ -568,8 +574,8 @@ class YOLOShapefileConverter:
                     arr = [x_center, y_center, box_width, box_height, angle]
 
                 # Skip if any coordinate is out of bounds
-                # For OBB, check only the first 4 values (center and dimensions), angle can be any value
-                array = arr[:4] if database_model == YoloDatasetModel.OBB else arr
+                # For AABB, check only the first 4 values (center and dimensions), angle can be any value
+                array = arr[:4] if database_model == YoloDatasetModel.AABB else arr
                 if not all(0.0 <= v <= 1.0 for v in array):
                     print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
                     continue
@@ -636,7 +642,7 @@ class YOLOShapefileConverter:
         for _, label_file in tqdm(enumerate(label_files), total=len(label_files), desc="Processing label files"):
 
             # Corresponding TIF file
-            tif_file = reference_tif_dir / f"{label_file.stem}.tif"
+            tif_file = reference_tif_dir / f"{label_file.stem}.png"
             if not tif_file.exists():
                 print(f"Warning: Corresponding TIF file not found for {label_file}, skipping.")
                 continue
@@ -681,7 +687,7 @@ class YOLOShapefileConverter:
             cutouts_dir: Directory containing cutout TIF files
             output_labels_dir: Directory to save YOLO label files
             tif_extension: Extension of TIF files (default: '.tif')
-            database_model: (YoloDatasetModel) YOLO dataset model (OBB or SEGMENTATION)
+            database_model: (YoloDatasetModel) YOLO dataset model (AABB or OBB)
         """
         cutouts_path = Path(cutouts_dir)
         if not cutouts_path.exists():
@@ -743,9 +749,9 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    # labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
+    # labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels_new"
     # ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
-    # pred_shp = "/home/samuel/Downloads/large_obb_test.shp"
+    # pred_shp = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/shapes/large_AABB_test.shp"
 
     # converter.labels_to_shapefile(
     #     labels_dir=labels_dir,
@@ -758,17 +764,50 @@ if __name__ == "__main__":
         
     # )
 
-    shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/labels_new"
+    shapefile_path = "/home/samuel/test/MasterThesis/Orthomosaics/old_data_AABB/small/shapefiles/BV_F2_small.shp"
+    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/original/original/processed_output/image_tiles"
+    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/old_data_AABB/labels"
 
     results = converter.shapefile_to_yolo_cutouts(
         shapefile_path = shapefile_path,
         cutouts_dir = reference_tif_dir,
         output_labels_dir = output_labels_dir,
-        database_model=YoloDatasetModel.SEGMENTATION
+        database_model=YoloDatasetModel.AABB,
+        tif_extension=".png"
     )
 
+    # shapefile_path = "/home/samuel/test/MasterThesis/Orthomosaics/old_data_AABB/small/shapefiles/BV_F2_small.shp"
+    # BASE_PATH = Path("/home/samuel/test/MasterThesis/Orthomosaics/old_data_AABB/small/labels")
+    
+    # for subfolder in os.listdir(BASE_PATH):
+
+    #     if subfolder == "original" or "original" in Path(subfolder).parts:
+    #         print(f"Skipping {subfolder} because it is the original folder")
+    #         continue
+
+    #     for subsubfolder in os.listdir(BASE_PATH / subfolder):
+
+    #         if subsubfolder == "original" or "original" in Path(subsubfolder).parts:
+    #             print(f"Skipping {subsubfolder} because it is the original folder")
+    #             continue
+
+    #         reference_tif_dir = BASE_PATH / subfolder / subsubfolder / "processed_output" / "image_tiles"
+    #         output_labels_dir = BASE_PATH / subfolder / subsubfolder / "labels_new"
+
+    #         print(f"Using shapefile: {shapefile_path}")
+    #         print(f"Using reference TIF directory: {reference_tif_dir}")
+    #         print(f"Output labels will be saved to: {output_labels_dir}")
+    #         print()
+
+    #         results = converter.shapefile_to_yolo_cutouts(
+    #             shapefile_path = shapefile_path,
+    #             cutouts_dir = reference_tif_dir,
+    #             output_labels_dir = output_labels_dir,
+    #             database_model=YoloDatasetModel.OBB,
+    #             tif_extension=".png"
+    #         )
+
     # for res in results:
+        # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
         # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
         # print(f" - {num_aTEMPORARY_OUTPUTnn}")
