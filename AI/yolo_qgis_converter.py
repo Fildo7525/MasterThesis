@@ -445,7 +445,7 @@ class YOLOShapefileConverter:
             intersecting = gdf[gdf.intersects(rotated_polygon)]
 
         if len(intersecting) == 0:
-            print(f"Warning: No annotations intersect with {reference_tif_file}")
+            # print(f"Warning: No annotations intersect with {reference_tif_file}")
             # Create empty label file
             output_path = Path(output_yolo_label)
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -463,7 +463,7 @@ class YOLOShapefileConverter:
 
                 # Check if the clipped is fully inside the original_polygon boundries
                 if not geom.within(rotated_polygon):
-                    print(f"Warning: Skipping annotation that is not fully within original tile bounds: {rotated_polygon}")
+                    # print(f"Warning: Skipping annotation that is not fully within original tile bounds: {rotated_polygon}")
                     continue
 
                 # Clip to cutout bounds
@@ -473,7 +473,7 @@ class YOLOShapefileConverter:
                 height = maxy - miny
 
                 if clipped.is_empty or clipped.area == 0 or width < min_width or height < min_height:
-                    print(f"Warning: Skipping {output_yolo_label} annotation with invalid geometry or area: {clipped.geom_type}")
+                    # print(f"Warning: Skipping {output_yolo_label} annotation with invalid geometry or area: {clipped.geom_type}")
                     continue
 
                 # Transform inverse: geo coords to pixel coords

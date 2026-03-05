@@ -46,7 +46,11 @@ from shapely.geometry.base import BaseGeometry
 from features.features import FeatureExtractor
 from ngrvi_pretrain import Pretrainer
 from ngrvi_approach import NgrviApproach
+from metrics import Metrics, ConfusionMatrix
 
+import os
+import time
+from pathlib import Path
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result container
@@ -411,31 +415,46 @@ def score_shapefile_parallel(
 # Demo
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    import os
-    import time
-    from pathlib import Path
+@dataclass
+class InferenceConfig:
+    ortho_path: Path
+    gt_shp:     Path
+    shp_path:   Path
+    out_dir:    Path = Path.cwd() / "mahal_output"
+    accept_pct: str = "95pct"
+    band_indices: list[int] | None = None
+    rectangle: bool = True
+    n_workers: int = 4
 
-    HOME     = Path.home()
-    base_dir = HOME / "SDU/MasterThesis"
+def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
+    print("Computing confusion matrix...")
+    print(f"Ground truth shape: {gt_shp}")
+    print(f"Predictions shape: {pred_shp}")
+    print(f"IoU threshold: {iou_threshold}")
 
-    ORTHO_PATH = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif"
-    SHP_PATH   = base_dir / "OpenCV/report_results/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp"
-    OUT_DIR    = "mahal_output"
-    ACCEPT_PCT = "95pct"
+    metrics = Metrics()
+    results: ConfusionMatrix = metrics.compute_from_shapefiles(
+        gt_shp = gt_shp,
+        pred_shp = pred_shp,
+        reference_tif_dir = output_dir / "tiles",
+        iou_threshold=iou_threshold
+    )
+# results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
+    metrics_path = output_dir / "metrics"
+    metrics_path.mkdir(parents=True, exist_ok=True)
+    results.print(save = metrics_path / "confusion_matrix_mahalanobis.txt")
+    results.plot(hold=True, save = metrics_path / "confusion_matrix_mahalanobis.png")
+    results.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised_mahalanobis.png")
 
-    cpu_count = os.cpu_count() or 1
-    N_WORKERS  = max(1, cpu_count - 1)   # leave one core for the OS
-
-    print(f"Using {N_WORKERS} worker processes")
+def inference(args: InferenceConfig):
 
     t0 = time.perf_counter()
     distances, labels, scored_idxs, gdf = score_shapefile_parallel(
-        ortho_path   = ORTHO_PATH,
-        shp_path     = SHP_PATH,
-        out_dir      = OUT_DIR,
-        accept_pct   = ACCEPT_PCT,
-        n_workers    = N_WORKERS,
+        ortho_path   = args.ortho_path,
+        shp_path     = args.shp_path,
+        out_dir      = str(args.out_dir),
+        accept_pct   = args.accept_pct,
+        n_workers    = args.n_workers,
         rectangle    = False,
     )
     elapsed = time.perf_counter() - t0
@@ -454,7 +473,56 @@ if __name__ == "__main__":
 
     inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].drop(columns=["is_inlier"])
 
-    out_shp = SHP_PATH.parent / "inliers_shapefile.shp"
+    out_shp = args.shp_path.parent / "inliers_shapefile.shp"
     inlier_gdf.to_file(out_shp)
     print(f"\nInlier shapefile saved -> {out_shp}")
     print(f"  {len(inlier_gdf)} / {len(gdf)} polygons kept")
+
+    compute_metrics(args.gt_shp, out_shp, args.out_dir.parent)
+
+
+if __name__ == "__main__":
+    HOME     = Path.home()
+    base_dir = HOME / "SDU/MasterThesis"
+
+    cpu_count = os.cpu_count() or 1
+    N_WORKERS  = max(1, cpu_count - 1)   # leave one core for the OS
+
+    configs = [
+        InferenceConfig(
+            ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+            gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
+            shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
+            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/mahal_output",
+            accept_pct = "95pct",
+            n_workers = N_WORKERS,
+        ),
+        InferenceConfig(
+            ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+            gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+            shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
+            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/mahal_output",
+            accept_pct = "95pct",
+            n_workers = N_WORKERS,
+        ),
+        InferenceConfig(
+            ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v3.tif",
+            gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
+            shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
+            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/mahal_output",
+            accept_pct = "95pct",
+            n_workers = N_WORKERS,
+        ),
+    ]
+
+    # ORTHO_PATH = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif"
+    # SHP_PATH   = base_dir / "OpenCV/report_results/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp"
+    # OUT_DIR    = "mahal_output"
+    # ACCEPT_PCT = "95pct"
+
+
+    print(f"Using {N_WORKERS} worker processes")
+    for cfg in configs:
+        print(f"\n=== Scoring {cfg.shp_path} against {cfg.ortho_path} ===")
+        inference(cfg)
+

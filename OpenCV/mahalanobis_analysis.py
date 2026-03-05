@@ -33,6 +33,7 @@ from scipy import stats
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.covariance import LedoitWolf   # robust cov estimator
+from scipy.stats import shapiro
 
 # ──────────────────────────────────────────────────────────────
 # CONFIG
@@ -324,6 +325,12 @@ def main():
 
     print(f"   Mean vector shape  : {mean_vec.shape}")
     print(f"   Covariance shape   : {cov.shape}")
+
+    stat, p = shapiro(X_work)
+    if p < 0.05:
+        print(f"\n   Shapiro-Wilk test: stat={stat:.4f}, p={p:.4e} -> reject normality")
+    else:
+        print(f"\n   Shapiro-Wilk test: stat={stat:.4f}, p={p:.4e} -> fail to reject normality")
 
     # 5. Mahalanobis distances
     distances = mahalanobis_distance(X_work, mean_vec, inv_cov)
