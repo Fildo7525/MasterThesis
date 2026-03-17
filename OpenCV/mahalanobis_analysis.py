@@ -35,6 +35,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.covariance import LedoitWolf   # robust cov estimator
 from scipy.stats import shapiro
 
+from create_indexes import Indices, Bands
+
 # ──────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────
@@ -55,12 +57,14 @@ CONFIGS = [
     )
 ]
 
-OUT_DIR          = Path("./mahal_output")
+OUT_DIR          = Path("./mahal_output_INDICES")
 NU               = 0.05
 ACCEPT_FRACTIONS = [0.95, 1.00]   # threshold percentiles to compute & plot
 USE_PCA          = True            # reduce to PCA space before computing cov
 PCA_VARIANCE     = 0.99            # keep enough PCs to explain this fraction
 USE_LEDOIT_WOLF  = True            # robust covariance estimator (better for small N)
+BANDS_TO_USE     = None            # None means all otherwise a list of Bands should be supplied.
+INDICES_TO_USE   = [ Indices.EXGR, Indices.NDVI, Indices.NGRDI, Indices.VARI ]            # None means all otherwise a list of Indices should be supplied.
 # ──────────────────────────────────────────────────────────────
 
 
