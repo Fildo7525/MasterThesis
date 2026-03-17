@@ -153,11 +153,32 @@ def compute_index(name: str | Indices, bands: list[np.ndarray]) -> np.ndarray:
     Bands are expected to be normalized to [0, 1] (i.e. divided by 65535
     prior to calling this function). Returns a float32 array.
     """
-    R   = bands[Bands.EXTEND_RED - 1]
-    G   = bands[Bands.EXTEND_GREEN - 1]
-    B   = bands[Bands.BLUE - 1]
-    RE  = bands[Bands.REDEDGE - 1]
-    NIR = bands[Bands.NIR - 1]
+    # print(f"Bands: Length: {len(bands)} @ {[band.shape for band in bands]}")
+
+    if len(bands) >= Bands.GREEN:
+        G   = bands[Bands.GREEN - 1]
+    # else:
+    #     print("Warning: Not enough bands for extended green")
+
+    if len(bands) >= Bands.RED:
+        R   = bands[Bands.RED - 1]
+    # else:
+    #     print("Warning: Not enough bands for extended red")
+
+    if len(bands) >= Bands.BLUE:
+        B   = bands[Bands.BLUE - 1]
+    # else:
+    #     print("Warning: Not enough bands for blue")
+
+    if len(bands) >= Bands.REDEDGE:
+        RE  = bands[Bands.REDEDGE - 1]
+    # else:
+    #     print("Warning: Not enough bands for red edge")
+
+    if len(bands) >= Bands.NIR:
+        NIR = bands[Bands.NIR - 1]
+    # else:
+    #     print("Warning: Not enough bands for NIR")
 
     eps    = 1e-5
     lmbda  = 0.667
@@ -188,7 +209,7 @@ def compute_index(name: str | Indices, bands: list[np.ndarray]) -> np.ndarray:
         "NPCI":     lambda: (R - B) / (R + B + eps),
         "OSAVI":    lambda: (NIR - R) / (NIR + R + 0.16),
         "RTVICore": lambda: 100 * (NIR - RE) - 10 * (NIR - G),
-        "RVI":      lambda: NIR / (R + eps),
+        "RVI":      lambda: R / (NIR + eps),
         "SAVI":     lambda: (NIR - R) / (NIR + R + L) * (1 + L),
         "SAVI2":    lambda: (NIR - R) / (NIR + R + 0.5) * 1.5,
         "SIPI":     lambda: (NIR - B) / (NIR - R + eps),

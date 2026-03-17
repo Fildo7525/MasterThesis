@@ -131,8 +131,8 @@ class Pretrainer:
             band_indices_1based = list(range(1, 8))
             actual_indices      = list(range(src.count))
         else:
-            band_indices_1based = [i + 1 for i in band_indices]
-            actual_indices      = band_indices
+            band_indices_1based = band_indices
+            actual_indices      = [i - 1 for i in band_indices]
 
         scale = 65535
         # print(f"  Reading bands {band_indices_1based} from window {window} (size {window.width}×{window.height})")
@@ -193,20 +193,29 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 
     def build_feature_matrix(self, ortho_path: Path, shapefile_path: Path,
-                              band_indices: list[int] | None) -> np.ndarray:
+                             band_indices: list[int] | None, limit: float = 0.8) -> np.ndarray:
         extractor = FeatureExtractor()
         gdf = gpd.read_file(shapefile_path)
+
+        limit = np.clip(limit, 0, 1)  # sanity check
 
         rows        = []
         skipped     = 0
 
+        picked_gdf = gdf.sample(frac=limit, random_state=42)  # Randomly pick a subset of polygons to process
+        pth = Path(f"./picked_polygons_{ortho_path.stem}_limit_{limit}.shp")
+        picked_gdf.to_file(pth)
+        print(f"  Shuffled and saved picked polygons to {pth.absolute()}")
+
+        print(f"  Picked polygons: {len(picked_gdf)} / {len(gdf)} (limit={limit})")
+
         with rasterio.open(ortho_path) as src:
             # Reproject shapefile to raster CRS if needed
-            if gdf.crs != src.crs:
-                print(f"  Reprojecting shapefile from {gdf.crs} → {src.crs}")
-                gdf = gdf.to_crs(src.crs)
+            if picked_gdf.crs != src.crs:
+                print(f"  Reprojecting shapefile from {picked_gdf.crs} → {src.crs}")
+                picked_gdf = picked_gdf.to_crs(src.crs)
 
-            for idx, row in tqdm(gdf.iterrows(), total=len(gdf), desc="Polygons"):
+            for idx, row in tqdm(picked_gdf.iterrows(), total=len(picked_gdf), desc="Polygons"):
                 geom = row.geometry
                 if geom is None or geom.is_empty:
                     print(f"  Skipping polygon {idx} (empty geometry)")
@@ -234,11 +243,11 @@ class Pretrainer:
 # Train & save
 # ---------------------------------------------------------------------------
 
-    def train(self, ortho_path: Path, shapefile_path: Path):
+    def train(self, ortho_path: Path, shapefile_path: Path, limit: float):
 
         print("── Extracting features from polygons ────────────────────")
         print("  Processing shapefile:", shapefile_path)
-        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices)
+        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, limit=limit)
         print(f"   Feature matrix: {X.shape[0]} samples × {X.shape[1]} features")
 
         print("\n── Fitting One-Class SVM ────────────────────────────────")
@@ -293,6 +302,7 @@ if __name__ == "__main__":
         trainer.train(
             ortho_path=Path(cfg.ortho_path),
             shapefile_path=Path(cfg.shapefile_path),
+            limit = 0.8,
         )
 
     trainer.dump(output_path)

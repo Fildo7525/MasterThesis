@@ -32,6 +32,7 @@ NOTE
 """
 
 from __future__ import annotations
+import cv2 as cv
 
 import json
 from dataclasses import dataclass
@@ -47,10 +48,13 @@ from features.features import FeatureExtractor
 from ngrvi_pretrain import Pretrainer
 from ngrvi_approach import NgrviApproach
 from metrics import Metrics, ConfusionMatrix
+import shutil
 
 import os
 import time
 from pathlib import Path
+
+from create_indexes import Bands
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result container
@@ -103,9 +107,7 @@ class MahalanobisInference:
         self._extractor = FeatureExtractor()
 
         # reuse the same NGRVI mask logic as training
-        base_dir   = Path.home() / "SDU/MasterThesis"
-        model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
-        self._ngrvi = NgrviApproach(model_path)
+        self._ngrvi = NgrviApproach()
 
     # ── factory ──────────────────────────────────────────────────────────────
 
@@ -129,13 +131,15 @@ class MahalanobisInference:
     @classmethod
     def from_dir(
         cls,
-        out_dir:       str | Path = "mahal_output",
+        out_dir:       str | Path = Path.cwd() / "mahal_output",
         accept_pct:    str = "95pct",   # key in thresholds.json: "95pct" or "100pct"
         band_indices:  list[int] | None = None,
         rectangle:     bool = False,
     ) -> "MahalanobisInference":
         """Convenience loader — point at the output directory and go."""
         d    = Path(out_dir)
+        # print(f"Loading inference artefacts from {d.absolute()} with accept_pct={accept_pct} ...")
+
         meta = json.loads((d / "thresholds.json").read_text())
         pca_path = d / "pca.joblib"
         return cls.from_saved(
@@ -223,18 +227,6 @@ class MahalanobisInference:
 
         return self.predict_feature_vec(raw_vec)
 
-    def predict_batch(
-        self,
-        geometries: list[BaseGeometry],
-        src:        rasterio.DatasetReader,
-    ) -> list[Optional[MahalResult]]:
-        """Score a list of geometries against the same open rasterio source."""
-        return [self.predict_polygon(g, src) for g in geometries]
-
-    def distance_only(self, raw_vec: np.ndarray) -> float:
-        """Return just the scalar Mahalanobis distance (no threshold check)."""
-        return self._mahalanobis(self._project(raw_vec))
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Feature extraction helper (mirrors Pretrainer exactly)
@@ -275,12 +267,12 @@ def _extract_vec(
         bands_1based  = list(range(1, 8))
         actual_indices = list(range(src.count-1))
     else:
-        bands_1based  = [i + 1 for i in band_indices]
-        actual_indices = band_indices
+        bands_1based  = band_indices
+        actual_indices = [i - 1 for i in band_indices]
 
     chip  = src.read(bands_1based, window=window).astype(np.float32) / 65535
     # print(f"Read chip with shape {chip.shape} for geometry with bounds {geometry.bounds}")
-    bands = [chip[i] for i in range(len(actual_indices))]
+    bands = [ band for band in chip[:len(actual_indices)] ]
 
     ngrvi_mask, _ = ngrvi.create_ngrvi_mask(chip)
 
@@ -318,7 +310,7 @@ def _worker_init(out_dir, accept_pct, ortho_path, band_indices, rectangle):
     """Runs once when a worker process starts."""
     global _worker_infer, _worker_ortho_path
     _worker_infer      = MahalanobisInference.from_dir(
-        out_dir=out_dir, accept_pct=accept_pct,
+        accept_pct=accept_pct,
         band_indices=band_indices, rectangle=rectangle,
     )
     _worker_ortho_path = ortho_path
@@ -426,7 +418,7 @@ class InferenceConfig:
     rectangle: bool = True
     n_workers: int = 4
 
-def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
+def compute_metrics(gt_shp, pred_shp, tiles_dir, output_dir, iou_threshold=0.5):
     print("Computing confusion matrix...")
     print(f"Ground truth shape: {gt_shp}")
     print(f"Predictions shape: {pred_shp}")
@@ -436,7 +428,7 @@ def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
     results: ConfusionMatrix = metrics.compute_from_shapefiles(
         gt_shp = gt_shp,
         pred_shp = pred_shp,
-        reference_tif_dir = output_dir / "tiles",
+        reference_tif_dir = tiles_dir / "tiles",
         iou_threshold=iou_threshold
     )
 # results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
@@ -448,6 +440,20 @@ def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
 
 def inference(args: InferenceConfig):
 
+    output = Path.cwd() / f"output_{args.ortho_path.stem}_{args.accept_pct}"
+    if output.exists():
+        existing_dirs = output.parent.glob(f"{output.stem}_*")
+        new_name_for_existing = output.parent / f"{output.stem}_0001"
+        nums = sorted(list(map(int, (p.stem.split("_")[-1] for p in existing_dirs if p.is_dir() and p.stem.startswith(output.stem)))))
+        max_num = nums[-1] if nums else 0
+        new_name_for_existing = output.parent / f"{output.stem}_{max_num + 1:04}"
+
+        shutil.move(str(output), str(new_name_for_existing))
+
+    labels_dir = output / "labels"
+    if not labels_dir.exists():
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
     t0 = time.perf_counter()
     distances, labels, scored_idxs, gdf = score_shapefile_parallel(
         ortho_path   = args.ortho_path,
@@ -456,6 +462,7 @@ def inference(args: InferenceConfig):
         accept_pct   = args.accept_pct,
         n_workers    = args.n_workers,
         rectangle    = False,
+        band_indices = args.band_indices,
     )
     elapsed = time.perf_counter() - t0
 
@@ -473,12 +480,25 @@ def inference(args: InferenceConfig):
 
     inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].drop(columns=["is_inlier"])
 
-    out_shp = args.shp_path.parent / "inliers_shapefile.shp"
+    out_shp = output / "inliers_shapefile.shp"
     inlier_gdf.to_file(out_shp)
     print(f"\nInlier shapefile saved -> {out_shp}")
     print(f"  {len(inlier_gdf)} / {len(gdf)} polygons kept")
 
-    compute_metrics(args.gt_shp, out_shp, args.out_dir.parent)
+    run_info_pth = output / "run_info.json"
+    with open(run_info_pth, "w") as f:
+        json.dump({
+            "ortho_path": str(args.ortho_path),
+            "gt_shp": str(args.gt_shp),
+            "pred_shp": str(out_shp),
+            "accept_pct": args.accept_pct,
+            "n_workers": args.n_workers,
+            "elapsed_seconds": elapsed,
+            "bands": args.band_indices or "all",
+        }, f, indent=4)
+
+    tiles_dir = Path.cwd() / f"output_{args.ortho_path.stem}"
+    compute_metrics(args.gt_shp, out_shp, tiles_dir, output)
 
 
 if __name__ == "__main__":
@@ -494,24 +514,27 @@ if __name__ == "__main__":
             gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
             out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/mahal_output",
-            accept_pct = "95pct",
+            accept_pct = "100pct",
             n_workers = N_WORKERS,
+            band_indices = [Bands.RED, Bands.GREEN, Bands.BLUE],   # only RGB bands for the mid-sized test
         ),
         InferenceConfig(
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
             out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/mahal_output",
-            accept_pct = "95pct",
+            accept_pct = "100pct",
             n_workers = N_WORKERS,
+            band_indices = [Bands.RED, Bands.GREEN, Bands.BLUE],   # only RGB bands for the mid-sized test
         ),
         InferenceConfig(
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v3.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
             out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/mahal_output",
-            accept_pct = "95pct",
+            accept_pct = "100pct",
             n_workers = N_WORKERS,
+            band_indices = [Bands.RED, Bands.GREEN, Bands.BLUE],   # only RGB bands for the mid-sized test
         ),
     ]
 
@@ -522,7 +545,10 @@ if __name__ == "__main__":
 
 
     print(f"Using {N_WORKERS} worker processes")
+    pcts = ["95pct", "98pct", "99pct", "100pct"]
     for cfg in configs:
-        print(f"\n=== Scoring {cfg.shp_path} against {cfg.ortho_path} ===")
-        inference(cfg)
+        for pct in pcts:
+            cfg.accept_pct = pct
+            print(f"\n=== Scoring {cfg.shp_path} against {cfg.ortho_path} with {cfg.accept_pct} ===")
+            inference(cfg)
 

@@ -35,6 +35,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.covariance import LedoitWolf   # robust cov estimator
 from scipy.stats import shapiro
 
+from create_indexes import Bands
+
 # ──────────────────────────────────────────────────────────────
 # CONFIG
 # ──────────────────────────────────────────────────────────────
@@ -44,24 +46,30 @@ CONFIGS = [
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
         shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+        limit = 0.75,
     ),
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
         shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        limit = 0.75,
     ),
     dict(
         ortho = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
         shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+        limit = 0.75,
     )
 ]
 
+RANDOM_SEED      = 42
 OUT_DIR          = Path("./mahal_output")
 NU               = 0.05
-ACCEPT_FRACTIONS = [0.95, 1.00]   # threshold percentiles to compute & plot
+ACCEPT_FRACTIONS = [0.95, 0.975, 0.99, 1.00]   # threshold percentiles to compute & plot
 USE_PCA          = True            # reduce to PCA space before computing cov
 PCA_VARIANCE     = 0.99            # keep enough PCs to explain this fraction
 USE_LEDOIT_WOLF  = True            # robust covariance estimator (better for small N)
 # ──────────────────────────────────────────────────────────────
+
+np.random.seed(RANDOM_SEED)
 
 
 # ── data helpers ──────────────────────────────────────────────
@@ -74,7 +82,8 @@ def build_X(configs):
         X = trainer.build_feature_matrix(
             ortho_path=Path(cfg["ortho"]),
             shapefile_path=Path(cfg["shapes"]),
-            band_indices=None,
+            band_indices=[Bands.RED, Bands.GREEN, Bands.BLUE],
+            limit=cfg["limit"],
         )
         rows.append(X)
     return np.vstack(rows)
@@ -100,9 +109,11 @@ def mahalanobis_distance(X: np.ndarray,
 
 BG, GRID = "#0d1117", "#1e2530"
 ACC, AMB, RED, GRN = "#4fc3f7", "#ffca28", "#ef5350", "#69f0ae"
+PRP = "#ab47bc"
+ORG = "#ff7043"
 
-THRESH_COLORS = {0.95: AMB, 1.00: RED}
-THRESH_LABELS = {0.95: "95 %", 1.00: "100 %"}
+THRESH_COLORS = {0.95: AMB, 0.975: PRP, 0.99: ORG, 1.00: RED}
+THRESH_LABELS = {0.95: "95 %", 0.975: "97.5 %", 0.99: "99 %", 1.00: "100 %"}
 
 
 def style_ax(ax):
@@ -213,7 +224,7 @@ def plot_pca_scatter(X_pca: np.ndarray,
                     s=40, alpha=0.85, edgecolor="none", zorder=3)
     cbar = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02)
     cbar.set_label("Mahalanobis Distance", color="white")
-    cbar.ax.yaxis.set_tick_params(color="white", labelsize=8)
+    cbar.ax.yaxis.set_tick_params(color="white", labelsize=8, labelcolor="white")
 
     # draw ellipses at each threshold (based on std of PC1 & PC2)
     theta  = np.linspace(0, 2 * np.pi, 300)
@@ -327,6 +338,7 @@ def main():
     print(f"   Covariance shape   : {cov.shape}")
 
     stat, p = shapiro(X_work)
+    print(f"Test done with {X_work.shape[0]} samples and {X_work.shape[1]} dimensions.")
     if p < 0.05:
         print(f"\n   Shapiro-Wilk test: stat={stat:.4f}, p={p:.4e} -> reject normality")
     else:
@@ -348,9 +360,10 @@ def main():
         thresholds[frac] = t
         print(f"     {frac*100:5.1f}%  ->  d = {t:.5f}")
 
-    # also report theoretical chi threshold for comparison
-    chi_95 = stats.chi.ppf(0.95, df=n_dims)
-    print(f"\n   Theoretical chi(df={n_dims}, p=0.95) = {chi_95:.5f}")
+    print("")
+    for frac in ACCEPT_FRACTIONS:
+        chi_95 = stats.chi.ppf(frac, df=n_dims)
+        print(f"   Theoretical chi(df={n_dims}, p={frac}) = {chi_95:.5f}")
 
     # 7. save artefacts
     np.save(OUT_DIR / "mean.npy",         mean_vec)
@@ -370,7 +383,7 @@ def main():
             "std":  float(distances.std()),
         },
         "thresholds": {f"{k*100:.0f}pct": v for k, v in thresholds.items()},
-        "chi_theoretical_95": float(chi_95),
+        "chi_theoretical_95": float(stats.chi.ppf(0.95, df=n_dims)),
     }
     with open(OUT_DIR / "thresholds.json", "w") as f:
         json.dump(meta, f, indent=2)

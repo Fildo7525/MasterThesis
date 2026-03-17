@@ -33,13 +33,15 @@ class ApproachArgs:
 
 
 class NgrviApproach:
-    def __init__(self, model_path: Path | str):
+    def __init__(self, model_path: Path | str | None = None):
         self.output: Path = Path.cwd() / "output"
         self.labels_dir = self.output / "labels"
         self.extractor = FeatureExtractor()
-        meta = joblib.load(model_path)
-        self.pipeline = meta["pipeline"]
-        self.band_indices = meta["band_indices"]
+
+        if model_path is not None:
+            meta = joblib.load(model_path)
+            self.pipeline = meta["pipeline"]
+            self.band_indices = meta["band_indices"]
 
 
     def set_output(self, output: Path | str, rename_existing: bool = True):
@@ -63,15 +65,28 @@ class NgrviApproach:
         list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
 
         # if DBG:
-        #     print(f"Creating NGRVI mask from {len(list_bands)} bands")
-        #     for i, band in enumerate(bands):
-        #         print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
+            # print(f"Creating NGRVI mask from {len(list_bands)} bands")
+            # for i, band in enumerate(bands):
+            #     print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
+            #     cv.imshow(f"Band {i}", band)
 
         index = compute_index(Indices.NGRVI.name, list_bands)
+        # test = np.copy(index)
+        # cv.normalize(test, test, 0, 255, cv.NORM_MINMAX)
+        # cv.imshow("index", index)
+        # cv.imshow("test uint8", test.astype(np.uint8))
+
         ngrdi_u16 = scale_to_uint16(index, Indices.NGRVI.name)
         threshold_value = UINT16_MAX * 0.016
         mask = np.zeros_like(ngrdi_u16)
         cv.threshold(ngrdi_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
+
+        # cv.imshow("Thresholded NGRVI Mask", mask)
+
+        # key = cv.waitKey(0)
+        # cv.destroyAllWindows()
+        # if key == ord('q'):
+        #     exit(0)
 
         return mask, ngrdi_u16
 

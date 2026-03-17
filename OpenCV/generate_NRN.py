@@ -43,10 +43,14 @@ class NrnAssembler:
         tile_profile = src.profile
 
         NIR = self.normalize_tile(bands[Bands.NIR.value - 1])
-        RED = self.normalize_tile(bands[Bands.RED.value - 1])
-        NGRDI = self.normalize_tile(compute_index(Indices.NGRDI, bands))
+        EXTEND_RED = self.normalize_tile(bands[Bands.EXTEND_RED.value - 1])
 
-        nrn = np.dstack((NIR, RED, NGRDI)).astype(np.uint8)
+        NGRDI = compute_index(Indices.NGRDI, bands).astype(np.float32)
+        NGRDI = np.clip(NGRDI, -1, 1)
+        NGRDI = np.floor(((NGRDI + 1) / 2) * 255).astype(np.uint8)
+        NGRDI = self.normalize_tile(NGRDI)
+
+        nrn = np.dstack((NIR, EXTEND_RED, NGRDI)).astype(np.uint8)
 
         print(f"Processing tile ({i}, {j}) with shape {nrn.shape} and dtype {nrn.dtype}")
 
