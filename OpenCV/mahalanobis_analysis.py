@@ -67,7 +67,7 @@ ACCEPT_FRACTIONS = [0.95, 0.975, 0.99, 1.00]   # threshold percentiles to comput
 USE_PCA          = True            # reduce to PCA space before computing cov
 PCA_VARIANCE     = 0.99            # keep enough PCs to explain this fraction
 USE_LEDOIT_WOLF  = True            # robust covariance estimator (better for small N)
-BANDS_TO_USE     = None            # None means all otherwise a list of Bands should be supplied.
+BANDS_TO_USE     = [ Bands.EXTEND_RED, Bands.NIR ]            # None means all otherwise a list of Bands should be supplied.
 INDICES_TO_USE   = [ Indices.EXGR, Indices.NDVI, Indices.NGRDI, Indices.VARI ]            # None means all otherwise a list of Indices should be supplied.
 # ──────────────────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ def build_X(configs):
         X = trainer.build_feature_matrix(
             ortho_path=Path(cfg["ortho"]),
             shapefile_path=Path(cfg["shapes"]),
-            band_indices=None,
+            band_indices=[band.value for band in BANDS_TO_USE],
             vegetation_indices = INDICES_TO_USE,
             limit=cfg["limit"],
         )

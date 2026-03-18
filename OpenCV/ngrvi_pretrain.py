@@ -164,7 +164,7 @@ class Pretrainer:
 
         results = extractor.process_multiband(
             bands,
-            band_indices=None,
+            band_indices=band_indices,
             mask=ngrvi_mask,
             rectangle=self.rectangle,
             vegetation_indices=vegetation_indices
