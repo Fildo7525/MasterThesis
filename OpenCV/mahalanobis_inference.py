@@ -49,8 +49,13 @@ from ngrvi_approach import NgrviApproach
 from metrics import Metrics, ConfusionMatrix
 
 import os
+import shutil
 import time
 from pathlib import Path
+
+import cv2 as cv
+
+from mahalanobis_analysis import INDICES_TO_USE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result container
@@ -129,13 +134,13 @@ class MahalanobisInference:
     @classmethod
     def from_dir(
         cls,
-        out_dir:       str | Path = "mahal_output",
+        mahal_dir:       str | Path = "mahal_output",
         accept_pct:    str = "95pct",   # key in thresholds.json: "95pct" or "100pct"
         band_indices:  list[int] | None = None,
         rectangle:     bool = False,
     ) -> "MahalanobisInference":
         """Convenience loader — point at the output directory and go."""
-        d    = Path(out_dir)
+        d    = Path(mahal_dir)
         meta = json.loads((d / "thresholds.json").read_text())
         pca_path = d / "pca.joblib"
         return cls.from_saved(
@@ -223,18 +228,6 @@ class MahalanobisInference:
 
         return self.predict_feature_vec(raw_vec)
 
-    def predict_batch(
-        self,
-        geometries: list[BaseGeometry],
-        src:        rasterio.DatasetReader,
-    ) -> list[Optional[MahalResult]]:
-        """Score a list of geometries against the same open rasterio source."""
-        return [self.predict_polygon(g, src) for g in geometries]
-
-    def distance_only(self, raw_vec: np.ndarray) -> float:
-        """Return just the scalar Mahalanobis distance (no threshold check)."""
-        return self._mahalanobis(self._project(raw_vec))
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Feature extraction helper (mirrors Pretrainer exactly)
@@ -282,21 +275,37 @@ def _extract_vec(
     # print(f"Read chip with shape {chip.shape} for geometry with bounds {geometry.bounds}")
     bands = [chip[i] for i in range(len(actual_indices))]
 
-    ngrvi_mask, _ = ngrvi.create_ngrvi_mask(chip)
+    ngrvi_mask, ngrviu16 = ngrvi.create_ngrvi_mask(chip)
+
+    # cv.imshow("mask", ngrvi_mask)
+    # cv.imshow("ngrvi", ngrviu16)
+    # key = cv.waitKey(0)
+    # cv.destroyAllWindows()
+    # if key == ord('q'):
+    #     quit(0)
 
     results = extractor.process_multiband(
         bands,
-        band_indices = list(range(chip.shape[0])),
+        band_indices = None,
         mask         = ngrvi_mask,
         rectangle    = rectangle,
+        vegetation_indices=INDICES_TO_USE
     )
+
+    # for name, values_dict in results.items():
+    #     print(f"  {name}:")
+    #     if values_dict is None:
+    #         print("    No features extracted (too small or empty polygon)")
+    #         return None
+
+    #     for feat_name, value in values_dict.items():
+    #         print(f"    {feat_name}: {value}")
 
     values = []
     for band_name, feats in sorted(results.items()):
-        if feats is None:
-            continue
-        for feat_name, val in sorted(feats.items()):
-            values.append(float(val))
+        if feats is not None:
+            for feat_name, val in sorted(feats.items()):
+                values.append(float(val))
 
     return np.array(values) if values else None
 
@@ -314,11 +323,11 @@ _worker_infer      = None
 _worker_ortho_path = None
 
 
-def _worker_init(out_dir, accept_pct, ortho_path, band_indices, rectangle):
+def _worker_init(mahal_dir, accept_pct, ortho_path, band_indices, rectangle):
     """Runs once when a worker process starts."""
     global _worker_infer, _worker_ortho_path
     _worker_infer      = MahalanobisInference.from_dir(
-        out_dir=out_dir, accept_pct=accept_pct,
+        mahal_dir=mahal_dir, accept_pct=accept_pct,
         band_indices=band_indices, rectangle=rectangle,
     )
     _worker_ortho_path = ortho_path
@@ -348,7 +357,8 @@ def _worker_score(task):
 def score_shapefile_parallel(
     ortho_path,
     shp_path,
-    out_dir     = "mahal_output",
+    out_dir     = "output",
+    mahal_dir   = "mahal_output",
     accept_pct  = "95pct",
     band_indices = None,
     rectangle   = True,
@@ -394,7 +404,7 @@ def score_shapefile_parallel(
     with ctx.Pool(
         processes   = n_workers,
         initializer = _worker_init,
-        initargs    = (str(out_dir), accept_pct,
+        initargs    = (str(mahal_dir), accept_pct,
                        str(ortho_path), band_indices, rectangle),
     ) as pool:
         for idx, dist, is_inlier in tqdm(
@@ -420,23 +430,26 @@ class InferenceConfig:
     ortho_path: Path
     gt_shp:     Path
     shp_path:   Path
-    out_dir:    Path = Path.cwd() / "mahal_output"
+    tiles_dir:  Path
+    out_dir:    Path = Path.cwd() / "output"
+    mahal_dir:    Path = Path.cwd() / "mahal_output"
     accept_pct: str = "95pct"
     band_indices: list[int] | None = None
     rectangle: bool = True
     n_workers: int = 4
 
-def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
+def compute_metrics(gt_shp, pred_shp, output_dir, tiles_dir, iou_threshold=0.5):
     print("Computing confusion matrix...")
     print(f"Ground truth shape: {gt_shp}")
     print(f"Predictions shape: {pred_shp}")
+    print(f"Tiles dir: {tiles_dir}")
     print(f"IoU threshold: {iou_threshold}")
 
     metrics = Metrics()
     results: ConfusionMatrix = metrics.compute_from_shapefiles(
         gt_shp = gt_shp,
         pred_shp = pred_shp,
-        reference_tif_dir = output_dir / "tiles",
+        reference_tif_dir = tiles_dir,
         iou_threshold=iou_threshold
     )
 # results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
@@ -448,11 +461,26 @@ def compute_metrics(gt_shp, pred_shp, output_dir, iou_threshold=0.5):
 
 def inference(args: InferenceConfig):
 
+    output = Path.cwd() / f"output_indices_{args.ortho_path.stem}_{args.accept_pct}"
+    if output.exists():
+        existing_dirs = output.parent.glob(f"{output.stem}_*")
+        new_name_for_existing = output.parent / f"{output.stem}_0001"
+        nums = sorted(list(map(int, (p.stem.split("_")[-1] for p in existing_dirs if p.is_dir() and p.stem.startswith(output.stem)))))
+        max_num = nums[-1] if nums else 0
+        new_name_for_existing = output.parent / f"{output.stem}_{max_num + 1:04}"
+
+        shutil.move(str(output), str(new_name_for_existing))
+
+    labels_dir = output / "labels"
+    if not labels_dir.exists():
+        labels_dir.mkdir(parents=True, exist_ok=True)
+
     t0 = time.perf_counter()
     distances, labels, scored_idxs, gdf = score_shapefile_parallel(
         ortho_path   = args.ortho_path,
         shp_path     = args.shp_path,
         out_dir      = str(args.out_dir),
+        mahal_dir    = str(args.mahal_dir),
         accept_pct   = args.accept_pct,
         n_workers    = args.n_workers,
         rectangle    = False,
@@ -473,12 +501,28 @@ def inference(args: InferenceConfig):
 
     inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].drop(columns=["is_inlier"])
 
-    out_shp = args.shp_path.parent / "inliers_shapefile.shp"
+    out_shp = args.out_dir / "inliers_shapefile.shp"
+    if not out_shp.parent.exists():
+        out_shp.parent.mkdir(parents=True, exist_ok=True)
+
     inlier_gdf.to_file(out_shp)
     print(f"\nInlier shapefile saved -> {out_shp}")
     print(f"  {len(inlier_gdf)} / {len(gdf)} polygons kept")
 
-    compute_metrics(args.gt_shp, out_shp, args.out_dir.parent)
+    run_info_pth = output / "run_info.json"
+    with open(run_info_pth, "w") as f:
+        json.dump({
+            "ortho_path": str(args.ortho_path),
+            "gt_shp": str(args.gt_shp),
+            "pred_shp": str(out_shp),
+            "accept_pct": args.accept_pct,
+            "n_workers": args.n_workers,
+            "elapsed_seconds": elapsed,
+            "bands": args.band_indices or "all",
+            "vegetation_indices": INDICES_TO_USE
+        }, f, indent=4)
+
+    compute_metrics(args.gt_shp, out_shp, output, args.tiles_dir)
 
 
 if __name__ == "__main__":
@@ -493,7 +537,9 @@ if __name__ == "__main__":
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
-            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/mahal_output",
+            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
+            out_dir = base_dir / "OpenCV/INDICES/small",
+            tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/tiles",
             accept_pct = "95pct",
             n_workers = N_WORKERS,
         ),
@@ -501,7 +547,9 @@ if __name__ == "__main__":
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
-            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/mahal_output",
+            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
+            out_dir = base_dir / "OpenCV/INDICES/mid",
+            tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/tiles",
             accept_pct = "95pct",
             n_workers = N_WORKERS,
         ),
@@ -509,7 +557,9 @@ if __name__ == "__main__":
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v3.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
-            out_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/mahal_output",
+            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
+            out_dir = base_dir / "OpenCV/INDICES/big",
+            tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v3/tiles",
             accept_pct = "95pct",
             n_workers = N_WORKERS,
         ),
@@ -522,7 +572,10 @@ if __name__ == "__main__":
 
 
     print(f"Using {N_WORKERS} worker processes")
+    pcts = ["95pct", "98pct", "99pct", "100pct"]
     for cfg in configs:
-        print(f"\n=== Scoring {cfg.shp_path} against {cfg.ortho_path} ===")
-        inference(cfg)
+        for pct in pcts:
+            cfg.accept_pct = pct
+            print(f"\n=== Scoring {cfg.shp_path} against {cfg.ortho_path} with {cfg.accept_pct} ===")
+            inference(cfg)
 

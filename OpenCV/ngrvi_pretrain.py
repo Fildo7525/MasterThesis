@@ -114,8 +114,9 @@ class Pretrainer:
         return window, pixel_mask
 
     def extract_vector_from_polygon(self, geometry, src: rasterio.DatasetReader,
-                                     extractor: FeatureExtractor,
-                                     band_indices: list[int] | None) -> np.ndarray | None:
+                                    extractor: FeatureExtractor,
+                                    band_indices: list[int] | None,
+                                    vegetation_indices: list[Indices] | None) -> np.ndarray | None:
         """
         Crop the orthomosaic to the polygon window, apply the exact polygon mask,
         and return a flat feature vector.  Returns None if the polygon is too small.
@@ -163,27 +164,27 @@ class Pretrainer:
 
         results = extractor.process_multiband(
             bands,
-            band_indices=list(range(chip.shape[0])),
+            band_indices=None,
             mask=ngrvi_mask,
             rectangle=self.rectangle,
+            vegetation_indices=vegetation_indices
         )
         # if DBG:
-        #     for name, values_dict in results.items():
-        #         print(f"  {name}:")
-        #         if values_dict is None:
-        #             print("    No features extracted (too small or empty polygon)")
-        #             return None
+        for name, values_dict in results.items():
+            print(f"  {name}:")
+            if values_dict is None:
+                print("    No features extracted (too small or empty polygon)")
+                return None
 
-        #         for feat_name, value in values_dict.items():
-        #             print(f"    {feat_name}: {value}")
+            for feat_name, value in values_dict.items():
+                print(f"    {feat_name}: {value}")
 
 
         values = []
-        for band_name, feats in sorted(results.items()):
-            if feats is None:
-                continue
-            for feat_name, val in sorted(feats.items()):
-                values.append(float(val))
+        for _, feats in sorted(results.items()):
+            if feats is not None:
+                for _, val in sorted(feats.items()):
+                    values.append(float(val))
 
         return np.array(values)
 
@@ -193,27 +194,38 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 
     def build_feature_matrix(self, ortho_path: Path, shapefile_path: Path,
-                              band_indices: list[int] | None) -> np.ndarray:
+                             band_indices: list[int] | None,
+                             vegetation_indices: list[Indices] | None,
+                             limit: float = 0.8) -> np.ndarray:
         extractor = FeatureExtractor()
         gdf = gpd.read_file(shapefile_path)
+
+        limit = np.clip(limit, 0, 1)  # sanity check
 
         rows        = []
         skipped     = 0
 
+        picked_gdf = gdf.sample(frac=limit, random_state=42)  # Randomly pick a subset of polygons to process
+        pth = Path(f"./picked_polygons_{ortho_path.stem}_limit_{limit}.shp")
+        picked_gdf.to_file(pth)
+        print(f"  Shuffled and saved picked polygons to {pth.absolute()}")
+
+        print(f"  Picked polygons: {len(picked_gdf)} / {len(gdf)} (limit={limit})")
+
         with rasterio.open(ortho_path) as src:
             # Reproject shapefile to raster CRS if needed
-            if gdf.crs != src.crs:
-                print(f"  Reprojecting shapefile from {gdf.crs} → {src.crs}")
-                gdf = gdf.to_crs(src.crs)
+            if picked_gdf.crs != src.crs:
+                print(f"  Reprojecting shapefile from {picked_gdf.crs} → {src.crs}")
+                picked_gdf = picked_gdf.to_crs(src.crs)
 
-            for idx, row in tqdm(gdf.iterrows(), total=len(gdf), desc="Polygons"):
+            for idx, row in tqdm(picked_gdf.iterrows(), total=len(picked_gdf), desc="Polygons"):
                 geom = row.geometry
                 if geom is None or geom.is_empty:
                     print(f"  Skipping polygon {idx} (empty geometry)")
                     skipped += 1
                     continue
 
-                vec = self.extract_vector_from_polygon(geom, src, extractor, band_indices)
+                vec = self.extract_vector_from_polygon(geom, src, extractor, band_indices, vegetation_indices)
                 if vec is None:
                     print(f"  Skipping polygon {idx} (too small or empty after masking)")
                     skipped += 1
@@ -234,11 +246,11 @@ class Pretrainer:
 # Train & save
 # ---------------------------------------------------------------------------
 
-    def train(self, ortho_path: Path, shapefile_path: Path):
+    def train(self, ortho_path: Path, shapefile_path: Path, limit: float):
 
         print("── Extracting features from polygons ────────────────────")
         print("  Processing shapefile:", shapefile_path)
-        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices)
+        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, vegetation_indices=None, limit=limit)
         print(f"   Feature matrix: {X.shape[0]} samples × {X.shape[1]} features")
 
         print("\n── Fitting One-Class SVM ────────────────────────────────")
@@ -293,6 +305,7 @@ if __name__ == "__main__":
         trainer.train(
             ortho_path=Path(cfg.ortho_path),
             shapefile_path=Path(cfg.shapefile_path),
+            limit = 0.8,
         )
 
     trainer.dump(output_path)

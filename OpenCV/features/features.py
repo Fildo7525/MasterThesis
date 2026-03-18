@@ -1,3 +1,4 @@
+# from OpenCV.create_indexes import compute_index
 import numpy as np
 import rasterio
 from rasterio.io import DatasetReader
@@ -8,6 +9,10 @@ from pathlib import Path
 from typing import List, Any
 
 import cv2 as cv
+
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from create_indexes import Indices, compute_index
 
 class FeatureExtractor:
     def __calculate_glcm_features(
@@ -131,6 +136,7 @@ class FeatureExtractor:
             band_indices: List[int] | None = None,
             mask: np.ndarray | None = None,
             rectangle: bool = True,
+            vegetation_indices: List[Indices] | None = None,
     ) -> dict[str, dict[str, float] | None]:
 
         # print(f"""
@@ -139,23 +145,25 @@ class FeatureExtractor:
         # dtype: {src.dtypes if hasattr(src, 'dtypes') else 'Unknown'}
         # """)
         # Determine which bands to process
-        if band_indices is None:
-            if type(src) is DatasetReader:
-                band_indices = list(1, range(src.count+1))
-            else:
-                # the src is np.ndarray with shape (bands, rows, cols)
-                band_indices = list(range(src.shape[0]))
 
         results = {}
 
-        for band_idx in band_indices:
-            if type(src) is DatasetReader:
-                band_data = src.read(band_idx + 1)  # rasterio uses 1-based indexing
-            else:
-                band_data = src[band_idx]  # Convert to 0-based
+        if band_indices is not None:
+            for band_idx in band_indices:
+                if type(src) is DatasetReader:
+                    band_data = src.read(band_idx + 1)  # rasterio uses 1-based indexing
+                else:
+                    band_data = src[band_idx]  # Convert to 0-based
 
-            features = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
-            results[f'band_{band_idx}'] = features
+                features = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
+                results[f'band_{band_idx}'] = features
+
+        if vegetation_indices is not None:
+            for veg_idx in vegetation_indices:
+                band_data = compute_index(veg_idx.name, src)
+
+                features = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
+                results[f'veg_{veg_idx}'] = features
 
         return results
 
@@ -166,6 +174,7 @@ class FeatureExtractor:
             band_indices: List[int] | None = None,
             mask: np.ndarray | None = None,
             rectangle: bool = False,
+            vegetation_indices: List[Indices] | None = None
     ) -> dict[str, dict[str, float] | None]:
         """
         Process multi-band TIF image and calculate texture features.
@@ -186,9 +195,9 @@ class FeatureExtractor:
 
         if type(tif) == Path or type(tif) == str:
             with rasterio.open(tif) as src:
-                return self.__process(src, band_indices=band_indices, mask=mask, rectangle=rectangle)
+                return self.__process(src, band_indices=band_indices, mask=mask, rectangle=rectangle, vegetation_indices=vegetation_indices)
         else:
-            return self.__process(tif, band_indices=band_indices, mask=mask, rectangle=rectangle)
+            return self.__process(tif, band_indices=band_indices, mask=mask, rectangle=rectangle, vegetation_indices=vegetation_indices)
 
 
 

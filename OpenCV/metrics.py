@@ -313,6 +313,7 @@ class Metrics:
         """
         converter = YOLOShapefileConverter()
 
+        print(f"reference tif dir {reference_tif_dir}")
         tmp_dir = Path(reference_tif_dir).parent / "metrics" / "tmp"
         if not tmp_dir.exists():
             tmp_dir.mkdir(parents=True)
