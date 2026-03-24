@@ -63,9 +63,9 @@ class NgrviApproach:
         list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
 
         # if DBG:
-        #     print(f"Creating NGRVI mask from {len(list_bands)} bands")
-        #     for i, band in enumerate(bands):
-        #         print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
+        # print(f"Creating NGRVI mask from {len(list_bands)} bands")
+        # for i, band in enumerate(bands):
+        #     print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
 
         index = compute_index(Indices.NGRVI.name, list_bands)
         ngrdi_u16 = scale_to_uint16(index, Indices.NGRVI.name)

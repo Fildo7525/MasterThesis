@@ -45,30 +45,30 @@ HOME = Path.home()
 CONFIGS = [
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
-        limit = 0.75,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_best.shp",
+        limit = 1,
     ),
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-        limit = 0.75,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_best.shp",
+        limit = 1,
     ),
     dict(
         ortho = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
-        limit = 0.75,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_best.shp",
+        limit = 1,
     )
 ]
 
 RANDOM_SEED      = 42
-OUT_DIR          = Path("./mahal_output_INDICES")
+OUT_DIR          = Path("./mahal_output_INDICES_v3")
 NU               = 0.05
 ACCEPT_FRACTIONS = [0.95, 0.975, 0.99, 1.00]   # threshold percentiles to compute & plot
 USE_PCA          = True            # reduce to PCA space before computing cov
 PCA_VARIANCE     = 0.99            # keep enough PCs to explain this fraction
 USE_LEDOIT_WOLF  = True            # robust covariance estimator (better for small N)
-BANDS_TO_USE     = [ Bands.EXTEND_RED, Bands.NIR ]            # None means all otherwise a list of Bands should be supplied.
-INDICES_TO_USE   = [ Indices.EXGR, Indices.NDVI, Indices.NGRDI, Indices.VARI ]            # None means all otherwise a list of Indices should be supplied.
+BANDS_TO_USE     = [ Bands.EXTEND_RED, Bands.EXTEND_GREEN, Bands.NIR ]            # None means all otherwise a list of Bands should be supplied.
+INDICES_TO_USE   = [ Indices.NGRDI, Indices.NGRVI, Indices.RVI ]            # None means all otherwise a list of Indices should be supplied.
 # ──────────────────────────────────────────────────────────────
 
 np.random.seed(RANDOM_SEED)
@@ -84,7 +84,7 @@ def build_X(configs):
         X = trainer.build_feature_matrix(
             ortho_path=Path(cfg["ortho"]),
             shapefile_path=Path(cfg["shapes"]),
-            band_indices=[band.value for band in BANDS_TO_USE],
+            band_indices=[band.value for band in BANDS_TO_USE] if BANDS_TO_USE is not None else None,
             vegetation_indices = INDICES_TO_USE,
             limit=cfg["limit"],
         )
@@ -387,6 +387,8 @@ def main():
         },
         "thresholds": {f"{k*100:.0f}pct": v for k, v in thresholds.items()},
         "chi_theoretical_95": float(stats.chi.ppf(0.95, df=n_dims)),
+        "bands": BANDS_TO_USE,
+        "indices": INDICES_TO_USE,
     }
     with open(OUT_DIR / "thresholds.json", "w") as f:
         json.dump(meta, f, indent=2)

@@ -12,7 +12,7 @@ import cv2 as cv
 
 import sys
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from create_indexes import Indices, compute_index
+from create_indexes import Indices, Bands, compute_index
 
 class FeatureExtractor:
     def __calculate_glcm_features(
@@ -133,7 +133,7 @@ class FeatureExtractor:
     def __process(
             self,
             src: DatasetReader | Any,
-            band_indices: List[int] | None = None,
+            band_indices: List[Bands] | None = None,
             mask: np.ndarray | None = None,
             rectangle: bool = True,
             vegetation_indices: List[Indices] | None = None,
@@ -151,9 +151,9 @@ class FeatureExtractor:
         if band_indices is not None:
             for band_idx in band_indices:
                 if type(src) is DatasetReader:
-                    band_data = src.read(band_idx + 1)  # rasterio uses 1-based indexing
+                    band_data = src.read(band_idx)  # rasterio uses 1-based indexing
                 else:
-                    band_data = src[band_idx]  # Convert to 0-based
+                    band_data = src[band_idx - 1]  # Convert to 0-based
 
                 features = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
                 results[f'band_{band_idx}'] = features
@@ -171,7 +171,7 @@ class FeatureExtractor:
     def process_multiband(
             self,
             tif: Path | Any,
-            band_indices: List[int] | None = None,
+            band_indices: List[Bands] | None = None,
             mask: np.ndarray | None = None,
             rectangle: bool = False,
             vegetation_indices: List[Indices] | None = None
@@ -213,7 +213,7 @@ if __name__ == "__main__":
 
     # Example 2: Calculate texture features for specific bands only
     print("\n=== Processing selected bands ===")
-    selected_features = extractor.process_multiband(tif_path, band_indices=[0, 2])
+    selected_features = extractor.process_multiband(tif_path, band_indices=[Bands.RED, Bands.BLUE])
 
     for band_name, features in selected_features.items():
         print(f"\n{band_name}:")
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     radius = min(height, width) // 4
     custom_mask = ((x - center_x)**2 + (y - center_y)**2) <= radius**2
 
-    roi_features = extractor.process_multiband(tif_path, band_indices=[0, 1, 2], mask=custom_mask)
+    roi_features = extractor.process_multiband(tif_path, band_indices=[Bands.RED, Bands.GREEN, Bands.BLUE], mask=custom_mask)
 
     # Display results
     print("\n=== Sample Results ===")

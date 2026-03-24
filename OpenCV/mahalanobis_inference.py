@@ -55,7 +55,7 @@ from pathlib import Path
 
 import cv2 as cv
 
-from mahalanobis_analysis import INDICES_TO_USE
+from mahalanobis_analysis import INDICES_TO_USE, BANDS_TO_USE
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result container
@@ -263,13 +263,9 @@ def _extract_vec(
     if pixel_mask.sum() < 9:
         return None
 
-    if band_indices is None:
-        # print(f"src.count: {src.count}")
-        bands_1based  = list(range(1, 8))
-        actual_indices = list(range(src.count-1))
-    else:
-        bands_1based  = [i + 1 for i in band_indices]
-        actual_indices = band_indices
+    # print(f"src.count: {src.count}")
+    bands_1based  = list(range(1, 8))
+    actual_indices = list(range(src.count - 1))
 
     chip  = src.read(bands_1based, window=window).astype(np.float32) / 65535
     # print(f"Read chip with shape {chip.shape} for geometry with bounds {geometry.bounds}")
@@ -286,10 +282,10 @@ def _extract_vec(
 
     results = extractor.process_multiband(
         bands,
-        band_indices = None,
+        band_indices = BANDS_TO_USE,
         mask         = ngrvi_mask,
         rectangle    = rectangle,
-        vegetation_indices=INDICES_TO_USE
+        vegetation_indices=INDICES_TO_USE,
     )
 
     # for name, values_dict in results.items():
@@ -357,7 +353,6 @@ def _worker_score(task):
 def score_shapefile_parallel(
     ortho_path,
     shp_path,
-    out_dir     = "output",
     mahal_dir   = "mahal_output",
     accept_pct  = "95pct",
     band_indices = None,
@@ -431,7 +426,6 @@ class InferenceConfig:
     gt_shp:     Path
     shp_path:   Path
     tiles_dir:  Path
-    out_dir:    Path = Path.cwd() / "output"
     mahal_dir:    Path = Path.cwd() / "mahal_output"
     accept_pct: str = "95pct"
     band_indices: list[int] | None = None
@@ -461,7 +455,7 @@ def compute_metrics(gt_shp, pred_shp, output_dir, tiles_dir, iou_threshold=0.5):
 
 def inference(args: InferenceConfig):
 
-    output = Path.cwd() / f"output_indices_{args.ortho_path.stem}_{args.accept_pct}"
+    output = Path.cwd() / f"output_indices_v2_{args.ortho_path.stem}_{args.accept_pct}"
     if output.exists():
         existing_dirs = output.parent.glob(f"{output.stem}_*")
         new_name_for_existing = output.parent / f"{output.stem}_0001"
@@ -479,7 +473,6 @@ def inference(args: InferenceConfig):
     distances, labels, scored_idxs, gdf = score_shapefile_parallel(
         ortho_path   = args.ortho_path,
         shp_path     = args.shp_path,
-        out_dir      = str(args.out_dir),
         mahal_dir    = str(args.mahal_dir),
         accept_pct   = args.accept_pct,
         n_workers    = args.n_workers,
@@ -501,7 +494,7 @@ def inference(args: InferenceConfig):
 
     inlier_gdf = scored_gdf[scored_gdf["is_inlier"]].drop(columns=["is_inlier"])
 
-    out_shp = args.out_dir / "inliers_shapefile.shp"
+    out_shp = labels_dir / f"inliers_shapefile.shp"
     if not out_shp.parent.exists():
         out_shp.parent.mkdir(parents=True, exist_ok=True)
 
@@ -533,32 +526,29 @@ if __name__ == "__main__":
     N_WORKERS  = max(1, cpu_count - 1)   # leave one core for the OS
 
     configs = [
-        InferenceConfig(
-            ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-            gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
-            shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
-            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
-            out_dir = base_dir / "OpenCV/INDICES/small",
-            tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/tiles",
-            accept_pct = "95pct",
-            n_workers = N_WORKERS,
-        ),
-        InferenceConfig(
-            ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-            gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-            shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
-            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
-            out_dir = base_dir / "OpenCV/INDICES/mid",
-            tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/tiles",
-            accept_pct = "95pct",
-            n_workers = N_WORKERS,
-        ),
+        # InferenceConfig(
+        #     ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+        #     gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
+        #     shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
+        #     mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
+        #     tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/tiles",
+        #     accept_pct = "95pct",
+        #     n_workers = N_WORKERS,
+        # ),
+        # InferenceConfig(
+        #     ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+        #     gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        #     shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
+        #     mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
+        #     tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/tiles",
+        #     accept_pct = "95pct",
+        #     n_workers = N_WORKERS,
+        # ),
         InferenceConfig(
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v3.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
-            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES",
-            out_dir = base_dir / "OpenCV/INDICES/big",
+            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
             tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v3/tiles",
             accept_pct = "95pct",
             n_workers = N_WORKERS,

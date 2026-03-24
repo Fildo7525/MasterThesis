@@ -7,3 +7,21 @@ on the qgis. If we have time we can optimise path planning between the points.
 projection where it is on the ground is for the ai and classical the same
 
 
+## OpenCV
+
+- Shape descriptors
+ - Area to circumrmferance
+
+
+Pick out the perfect samples of potatoes
+
+## NN
+
+Use ER, EG, NIR as a `false RGB`.
+
+
+## Combination
+
+Combine the NN and the features
+
+

@@ -36,7 +36,7 @@ from features.features import FeatureExtractor
 
 import cv2 as cv
 
-NU = 0.05
+NU = 0.5
 PREDICTION_PROBABILITY_THRESHOLD = 1  # Adjust as needed (e.g., 0.1 for more leniency)
 
 @dataclass
@@ -128,12 +128,8 @@ class Pretrainer:
 
         # Read only the bands we need for this small window — much faster than
         # reading the whole raster
-        if band_indices is None:
-            band_indices_1based = list(range(1, 8))
-            actual_indices      = list(range(src.count))
-        else:
-            band_indices_1based = [i + 1 for i in band_indices]
-            actual_indices      = band_indices
+        band_indices_1based = list(range(1, 8))
+        actual_indices      = list(range(src.count))
 
         scale = 65535
         # print(f"  Reading bands {band_indices_1based} from window {window} (size {window.width}×{window.height})")
@@ -170,14 +166,14 @@ class Pretrainer:
             vegetation_indices=vegetation_indices
         )
         # if DBG:
-        for name, values_dict in results.items():
-            print(f"  {name}:")
-            if values_dict is None:
-                print("    No features extracted (too small or empty polygon)")
-                return None
+        # for name, values_dict in results.items():
+        #     print(f"  {name}:")
+        #     if values_dict is None:
+        #         print("    No features extracted (too small or empty polygon)")
+        #         return None
 
-            for feat_name, value in values_dict.items():
-                print(f"    {feat_name}: {value}")
+        #     for feat_name, value in values_dict.items():
+        #         print(f"    {feat_name}: {value}")
 
 
         values = []
