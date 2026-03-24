@@ -85,7 +85,7 @@ def build_X(configs):
         X = trainer.build_feature_matrix(
             ortho_path=Path(cfg["ortho"]),
             shapefile_path=Path(cfg["shapes"]),
-            band_indices=[band.value for band in BANDS_TO_USE] if BANDS_TO_USE is not None else None,
+            band_indices=[band for band in BANDS_TO_USE] if BANDS_TO_USE is not None else None,
             vegetation_indices = INDICES_TO_USE,
             limit=cfg["limit"],
         )

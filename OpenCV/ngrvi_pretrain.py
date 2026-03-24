@@ -1,22 +1,4 @@
-"""
-pretrain_classifier.py
-
-Extract GLCM texture features from labelled polygons (shapefile) over a
-single orthomosaic, then train a One-Class SVM saved to disk.
-
-Dependencies:
-    pip install numpy rasterio geopandas shapely scikit-learn joblib tqdm scikit-image opencv-python
-
-Usage:
-    python pretrain_classifier.py \
-        --ortho   orthomosaic.tif \
-        --shapes  labels.shp \
-        --out     model.joblib \
-        --bands   0 1 2 \
-        --nu      0.1
-"""
-
-from create_indexes import Indices, compute_index
+from create_indexes import Bands, Indices, compute_index
 from dataclasses import dataclass
 import numpy as np
 import rasterio
@@ -33,23 +15,24 @@ from sklearn.svm import OneClassSVM
 from sklearn.pipeline import Pipeline
 
 from features.features import FeatureExtractor
+from svm_diagnostics import plot_all
 
 import cv2 as cv
 
-NU = 0.5
+NU = 0.01
 PREDICTION_PROBABILITY_THRESHOLD = 1  # Adjust as needed (e.g., 0.1 for more leniency)
 
 @dataclass
 class PretrainConfig:
     ortho_path: Path
     shapefile_path: Path
-    band_indices: list[int] | None = None
+    band_indices: list[Bands] | None = None
 
 class Pretrainer:
     def __init__(self,
                  nu: float = 0.1,
                  kernel: str = "rbf",
-                 band_indices: list[int] | None = None,
+                 band_indices: list[Bands] | None = None,
                  rectangle: bool = True
     ):
         self.DBG = False
@@ -115,7 +98,7 @@ class Pretrainer:
 
     def extract_vector_from_polygon(self, geometry, src: rasterio.DatasetReader,
                                     extractor: FeatureExtractor,
-                                    band_indices: list[int] | None,
+                                    band_indices: list[Bands] | None,
                                     vegetation_indices: list[Indices] | None) -> np.ndarray | None:
         """
         Crop the orthomosaic to the polygon window, apply the exact polygon mask,
@@ -190,7 +173,7 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 
     def build_feature_matrix(self, ortho_path: Path, shapefile_path: Path,
-                             band_indices: list[int] | None,
+                             band_indices: list[Bands] | None,
                              vegetation_indices: list[Indices] | None,
                              limit: float = 0.8) -> np.ndarray:
         extractor = FeatureExtractor()
@@ -247,6 +230,7 @@ class Pretrainer:
         print("── Extracting features from polygons ────────────────────")
         print("  Processing shapefile:", shapefile_path)
         X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, vegetation_indices=None, limit=limit)
+        self.last_X = X
         print(f"   Feature matrix: {X.shape[0]} samples × {X.shape[1]} features")
 
         print("\n── Fitting One-Class SVM ────────────────────────────────")
@@ -286,14 +270,14 @@ if __name__ == "__main__":
         ),
     ]
 
-    output_path = home / "SDU/MasterThesis/Orthomosaics/pretrain_output_model.joblib"
+    output_path = home / "SDU/MasterThesis/OpenCV/svm_output/pretrain_output_model.joblib"
 
     DBG = True
 
     trainer = Pretrainer(
         nu=NU,
         kernel="rbf", # "rbf", "linear", "poly", "sigmoid"
-        band_indices=None,
+        band_indices=[band for band in Bands],
         rectangle = False,
     )
 
@@ -305,3 +289,4 @@ if __name__ == "__main__":
         )
 
     trainer.dump(output_path)
+    plot_all(trainer.pipeline, trainer.last_X, out_dir=output_path.parent)
