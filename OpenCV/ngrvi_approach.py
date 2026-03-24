@@ -369,7 +369,12 @@ class NgrviApproach:
         if DBG:
             print(f"Extracting segmented objects from tile_{row}_{column}...")
         # cv.imshow(f"Mask for object in tile {row}_{column}", ngrvi_mask)
-        results = self.extract_segmented_objects(self.rio2cv(bands), ngrvi_mask, row, column, export_masks=True, save_labels=True)
+        results = self.extract_segmented_objects(self.rio2cv(bands),
+                                                 ngrvi_mask,
+                                                 row,
+                                                 column,
+                                                 export_masks=True,
+                                                 save_labels=True)
         # if DBG:
         #     print(f"Extracted {len(masks)} objects from tile_{row}_{column} with NGRVI mask")
         # if masks == []:
@@ -492,8 +497,8 @@ class NgrviApproach:
         split_geotiff(
             input_tif = args.orthomosaic_path,
             output_dir = self.output / "tiles",
-            tile_size=1024,
-            overlap = 0,
+            tile_size=2048,
+            overlap = 100,
             process_window=self.process_window,
         )
 
@@ -541,7 +546,8 @@ if __name__ == "__main__":
 
     home = Path.home()
     base_dir = Path.home() / "SDU/MasterThesis"
-    model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
+    # model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
+    model_path = home / "SDU/MasterThesis/OpenCV/svm_output/pretrain_output_model.joblib"
     appr = NgrviApproach(model_path)
 
     orthomosaics: list[ApproachArgs] = [

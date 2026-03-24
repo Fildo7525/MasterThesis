@@ -71,12 +71,11 @@ def plot_pca_projection(pipeline: Pipeline, X: np.ndarray, ax: plt.Axes | None =
     xx, yy = np.meshgrid(np.linspace(x_min, x_max, 200),
                          np.linspace(y_min, y_max, 200))
 
-    # Project grid back to full PCA space (remaining components = 0)
-    n_components = min(pca.n_components_, X_scaled.shape[1])
-    grid_pca = np.c_[xx.ravel(), yy.ravel()]
-    pad = np.zeros((grid_pca.shape[0], X_scaled.shape[1] - 2))
-    grid_full = np.hstack([grid_pca, pad])
-    grid_orig = pca.inverse_transform(grid_full) if hasattr(pca, "inverse_transform") else grid_full
+    # Project grid back to original feature space via inverse_transform.
+    # inverse_transform expects shape (n_samples, n_components) — i.e. 2 columns,
+    # NOT the full 70-feature shape.
+    grid_pca  = np.c_[xx.ravel(), yy.ravel()]          # (N, 2)
+    grid_orig = pca.inverse_transform(grid_pca)         # (N, 70) — back to scaled space
     Z = svm.decision_function(grid_orig).reshape(xx.shape)
 
     standalone = ax is None
