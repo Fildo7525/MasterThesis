@@ -16,11 +16,20 @@ from sklearn.pipeline import Pipeline
 
 from features.features import FeatureExtractor
 from svm_diagnostics import plot_all
+from create_indexes import scale_to_uint16
 
 import cv2 as cv
 
 NU = 0.01
 PREDICTION_PROBABILITY_THRESHOLD = 1  # Adjust as needed (e.g., 0.1 for more leniency)
+UINT16_MAX = 65_535
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_rgb"
+if not OUTPUT_PATH.exists():
+    OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+
+
+BANDS_TO_USE = [Bands.RED, Bands.GREEN, Bands.BLUE]
+INDICES_TO_USE = None # [Indices.NGRDI, Indices.NGRVI, Indices.RVI, Indices.OSAVI, Indices.NGBDI, Indices.NDVI, Indices.CIVE]
 
 @dataclass
 class PretrainConfig:
@@ -33,19 +42,20 @@ class Pretrainer:
                  nu: float = 0.1,
                  kernel: str = "rbf",
                  band_indices: list[Bands] | None = None,
+                 vegetation_indices: list[Indices] | None = None,
                  rectangle: bool = True
     ):
         self.DBG = False
 
         base_dir = Path.home() / "SDU/MasterThesis"
         model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
-        self.NGRVI = NgrviApproach(model_path)
 
         self.pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("oc_svm", OneClassSVM(kernel=kernel, nu=nu, gamma="scale")),
         ])
         self.band_indices = band_indices
+        self.vegetation_indices = vegetation_indices
         self.rectangle = rectangle
 
 # ---------------------------------------------------------------------------
@@ -122,7 +132,7 @@ class Pretrainer:
 
         # Use the existing FeatureExtractor with the polygon mask
         bands = [band for band in chip[:len(actual_indices)]]  # Only the bands we care about
-        ngrvi_mask, ngrvi_u16 = self.NGRVI.create_ngrvi_mask(chip)
+        ngrvi_mask, ngrvi_u16 = self.create_ngrvi_mask(chip)
         # if DBG:
         #     print(f"  NGRVI mask has shape {ngrvi_mask.shape}, std={ngrvi_u16.std():.2f}, mean={ngrvi_u16.mean():.2f}")
 
@@ -168,6 +178,23 @@ class Pretrainer:
         return np.array(values)
 
 
+    def create_ngrvi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
+
+        # if DBG:
+        # print(f"Creating NGRVI mask from {len(list_bands)} bands")
+        # for i, band in enumerate(bands):
+        #     print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
+
+        index = compute_index(Indices.NGRVI.name, list_bands)
+        ngrdi_u16 = scale_to_uint16(index, Indices.NGRVI.name)
+        threshold_value = UINT16_MAX * 0.016
+        mask = np.zeros_like(ngrdi_u16)
+        cv.threshold(ngrdi_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
+
+        return mask, ngrdi_u16
+
+
 # ---------------------------------------------------------------------------
 # Build full feature matrix from shapefile
 # ---------------------------------------------------------------------------
@@ -185,7 +212,7 @@ class Pretrainer:
         skipped     = 0
 
         picked_gdf = gdf.sample(frac=limit, random_state=42)  # Randomly pick a subset of polygons to process
-        pth = Path(f"./picked_polygons_{ortho_path.stem}_limit_{limit}.shp")
+        pth = OUTPUT_PATH / f"picked_polygons_{ortho_path.stem}_limit_{limit}.shp"
         picked_gdf.to_file(pth)
         print(f"  Shuffled and saved picked polygons to {pth.absolute()}")
 
@@ -229,7 +256,7 @@ class Pretrainer:
 
         print("── Extracting features from polygons ────────────────────")
         print("  Processing shapefile:", shapefile_path)
-        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, vegetation_indices=None, limit=limit)
+        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, vegetation_indices=self.vegetation_indices, limit=limit)
         self.last_X = X
         print(f"   Feature matrix: {X.shape[0]} samples × {X.shape[1]} features")
 
@@ -244,6 +271,7 @@ class Pretrainer:
         meta = {
             "pipeline":     self.pipeline,
             "band_indices": self.band_indices,
+            "vegetation_indices": self.vegetation_indices
         }
         joblib.dump(meta, out_path)
         print(f"\n── Model saved → {out_path}")
@@ -251,6 +279,17 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def get_feature_names():
+    from features.features import FeatureExtractor
+    features = FeatureExtractor.get_feature_names()
+
+    feature_names = []
+    for band  in BANDS_TO_USE:
+        for feat in features:
+            feature_names.append(band.name + "_" + feat)
+
+
 
 if __name__ == "__main__":
 
@@ -270,15 +309,14 @@ if __name__ == "__main__":
         ),
     ]
 
-    output_path = home / "SDU/MasterThesis/OpenCV/svm_output/pretrain_output_model.joblib"
-
     DBG = True
 
     trainer = Pretrainer(
         nu=NU,
         kernel="rbf", # "rbf", "linear", "poly", "sigmoid"
-        band_indices=[band for band in Bands],
+        band_indices=BANDS_TO_USE,
         rectangle = False,
+        vegetation_indices=INDICES_TO_USE,
     )
 
     for cfg in args:
@@ -288,5 +326,6 @@ if __name__ == "__main__":
             limit = 0.8,
         )
 
-    trainer.dump(output_path)
-    plot_all(trainer.pipeline, trainer.last_X, out_dir=output_path.parent)
+    trainer.dump(OUTPUT_PATH / "pretrain_output_model.joblib")
+    feature_names = get_feature_names()
+    plot_all(trainer.pipeline, trainer.last_X, out_dir=OUTPUT_PATH, feature_names=feature_names)

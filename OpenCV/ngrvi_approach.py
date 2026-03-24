@@ -15,6 +15,7 @@ from features.features import FeatureExtractor
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from AI.yolo_qgis_converter import YOLOShapefileConverter
 from metrics import Metrics, ConfusionMatrix
+# from ngrvi_pretrain import BANDS_TO_USE, INDICES_TO_USE
 
 DBG = True
 
@@ -36,9 +37,11 @@ class NgrviApproach:
         self.output: Path = Path.cwd() / "output"
         self.labels_dir = self.output / "labels"
         self.extractor = FeatureExtractor()
+
         meta = joblib.load(model_path)
         self.pipeline = meta["pipeline"]
         self.band_indices = meta["band_indices"]
+        self.vegetation_indices = meta["vegetation_indices"]
 
 
     def set_output(self, output: Path | str, rename_existing: bool = True):
@@ -86,7 +89,14 @@ class NgrviApproach:
                                   save_labels = False):
         """
         Extract segmented objects from an image using a binary mask.
-        The limits were chosen based on the calculated areas in qgis from the ground truth shapefiles.
+
+        Performance notes
+        -----------------
+        - connectedComponentsWithStats returns per-component bounding boxes in
+          `stats`, so we crop the label map to each bbox before building the
+          per-object mask — avoiding a full-tile boolean allocation per label.
+        - Pure NumPy/Python work hits the GIL, so ThreadPoolExecutor gives no
+          speedup here; a plain loop is faster due to lower overhead.
 
         Args:
             image (MatLike): HxW or HxWxC numpy array
@@ -94,116 +104,64 @@ class NgrviApproach:
             min_area (int): Minimum area (in pixels) for an object to be considered
 
         Return:
-            List[np.ndarray]: list of numpy arrays, one per segmented object
+            List of (segm, bbox, obj) tuples for objects that pass the area filter.
+            When export_masks=True, obj is a tight (h, w) uint8 crop of the mask.
         """
+        if image.shape[:2] != mask.shape[:2]:
+            if DBG:
+                print(f"Warning: Image and mask size mismatch in tile_{row}_{column}. "
+                      f"Image shape: {image.shape}, Mask shape: {mask.shape}. Skipping.")
+            return []
 
-        # Ensure binary uint8 mask
-        # cv.imshow(f"Original Mask for tile {row}_{column}", mask)
         mask_bin = (mask > 0).astype(np.uint8)
+        num_labels, labels, stats, _ = cv.connectedComponentsWithStats(mask_bin)
 
-        # https://docs.opencv.org/3.4/d3/dc0/group__imgproc__shape.html#gaedef8c7340499ca391d459122e51bef5
-        num_labels, labels, stats, centroids = cv.connectedComponentsWithStats(mask_bin)
         if DBG:
             print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
 
-        # print(f"Image size: {image.shape}, Mask size: {mask.shape}, Found {num_labels - 1} objects.")
-        if image.shape[:2] != mask.shape[:2]:
-            # return [], []
-            if DBG:
-                print(f"Warning: Image and mask size mismatch in tile_{row}_{column}. Image shape: {image.shape}, Mask shape: {mask.shape}. Skipping this tile.")
-            return []
-
-        def process_label_segmentation(label):
-            obj_mask = (labels == label).astype(np.uint8)
-
-            x, y, w, h, _ = stats[label]
-            area = w * h
-
-            if area < min_area or max_area < area:
-                # print(f"Obj {label} has area {area} which is outside the limits ({min_area}, {max_area}). Skipping.")
-                # print(f"Obj shape: {obj_mask.shape}, dtype: {obj_mask.dtype}, unique values: {np.unique(obj_mask)}")
-                # print(f"Object with bbox {(x, y, w, h)} in tile_{row}_{column} has area {area} which is outside the limits ({min_area}, {max_area}). Skipping.")
-                return None
-
-            # TOP LEFT
-            nx1 = x / image.shape[1]
-            ny1 = y / image.shape[0]
-
-            # TOP RIGHT
-            nx2 = (x + w) / image.shape[1]
-            ny2 = y / image.shape[0]
-
-            # BOTTOM RIGHT
-            nx3 = (x + w) / image.shape[1]
-            ny3 = (y + h) / image.shape[0]
-
-            # BOTTOM LEFT
-            nx4 = x / image.shape[1]
-            ny4 = (y + h) / image.shape[0]
-
-            segm = (nx1, ny1, nx2, ny2, nx3, ny3, nx4, ny4)
-            bbox = (x, y, w, h)
-            if export_masks:
-                obj = obj_mask
-            else:
-                if image.ndim == 2:
-                    obj = image * obj_mask
-                else:
-                    obj = image * obj_mask[:, :, None]
-
-            # cv.imshow(f"Object mask for label {label} in tile {row}_{column}", obj*255)
-
-            return (segm, bbox, obj)
-
-        results = []
-        with ThreadPoolExecutor() as executor:
-            results = list(executor.map(process_label_segmentation, range(1, num_labels)))
-
-        # for label in range(1, num_labels):
-        #     res = process_label_segmentation(label)
-        #     results.append(res)
-
+        img_h, img_w = image.shape[:2]
         out = []
+
+        label_file = None
         if save_labels:
-            with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
-                for i, res in enumerate(results):
-                    if res is None:
-                        continue
-                    # cv.imshow(f"Mask {i} for object in tile", res[2]*255)
-                    # print(f"Object with bbox {res[1]} passed area filter in tile_{row}_{column}")
+            label_file = open(self.labels_dir / f"tile_{row}_{column}.txt", "w")
 
-                    segm, *_ = res
-                    x1, y1, x2, y2, x3, y3, x4, y4 = segm
-                    f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+        try:
+            for label in range(1, num_labels):
+                x, y, w, h, _ = stats[label]
+                area = w * h
 
-                    out.append(res)
-                return out
-        else:
-            for i, res in enumerate(results):
-                if res is None:
+                if area < min_area or area > max_area:
                     continue
-                # cv.imshow(f"Mask {i} for object in tile", res[2]*255)
-                # print(f"Object with bbox {res[1]} passed area filter in tile_{row}_{column}")
-                out.append(res)
-            return out
 
+                # Crop the label map to the tight bbox — avoids allocating a
+                # full-tile mask for every component.
+                label_crop = labels[y:y+h, x:x+w]
+                obj_mask   = (label_crop == label).astype(np.uint8)  # (h, w)
 
-        # with open(self.labels_dir / f"tile_{row}_{column}.txt", "w") as f:
-        #     results = []
-        #     with ThreadPoolExecutor() as executor:
-        #         results = list(executor.map(process_label_segmentation, range(1, num_labels)))
+                nx1, ny1 = x / img_w,       y / img_h
+                nx2, ny2 = (x + w) / img_w, y / img_h
+                nx3, ny3 = (x + w) / img_w, (y + h) / img_h
+                nx4, ny4 = x / img_w,       (y + h) / img_h
+                segm = (nx1, ny1, nx2, ny2, nx3, ny3, nx4, ny4)
+                bbox = (x, y, w, h)
 
-        #     for res in results:
-        #         if res is None:
-        #             continue
+                if export_masks:
+                    obj = obj_mask                       # tight (h, w) crop
+                else:
+                    crop = image[y:y+h, x:x+w]
+                    obj  = crop * obj_mask if image.ndim == 2 else crop * obj_mask[:, :, None]
 
-        #         segm, bbox, obj = res
-        #         x1, y1, x2, y2, x3, y3, x4, y4 = segm
-        #         f.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
-        #         bboxes.append(bbox)
-        #         objects.append(obj)
+                if label_file is not None:
+                    x1, y1, x2, y2, x3, y3, x4, y4 = segm
+                    label_file.write(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
 
-        # return objects, bboxes
+                out.append((segm, bbox, obj))
+        finally:
+            if label_file is not None:
+                label_file.close()
+
+        return out
 
 
     def rio2cv(self, rio_array: np.ndarray) -> np.ndarray:
@@ -233,53 +191,54 @@ class NgrviApproach:
         return masks
 
 
-    def extract_feat_vector(self, bands_chw: np.ndarray, segment_mask: np.ndarray) -> np.ndarray | None:
+    def extract_feat_vector(self,
+                            bands_chw: np.ndarray,
+                            segment_mask: np.ndarray,
+                            bbox: tuple[int, int, int, int],
+                            tile_ngrvi_mask: np.ndarray) -> np.ndarray | None:
         """
-        Extract a feature vector from one segmented object, matching the exact
-        pipeline used in Pretrainer.extract_vector_from_polygon.
+        Extract a feature vector from one segmented object.
 
         Parameters
         ----------
         bands_chw : np.ndarray  shape (C, H, W), float32 in [0, 1]
-            The full tile bands in rasterio / (C,H,W) order — same array that
-            was used to generate the NGRVI mask.
-        segment_mask : np.ndarray  shape (H, W), uint8
-            Per-segment binary mask from connectedComponentsWithStats,
-            values 0 or 1.  This is the tight per-object mask, NOT the
-            whole-tile NGRVI mask.
+        segment_mask : np.ndarray  shape (h, w) uint8  — tight bbox crop
+        bbox : (x, y, w, h)  — bbox of this segment in tile coordinates
+        tile_ngrvi_mask : np.ndarray  shape (H, W) uint8 — pre-computed once
+            per tile so we never rerun create_ngrvi_mask inside the segment loop.
 
         Returns
         -------
-        np.ndarray  1-D feature vector, or None if the segment is too small.
+        np.ndarray  1-D feature vector, or None if too small.
         """
         if segment_mask.sum() < 9:
             return None
 
-        # Build the per-segment NGRVI mask: apply NGRVI threshold restricted
-        # to pixels inside this segment so the feature extractor sees the same
-        # masked chip that training used.
-        ngrvi_seg_mask, _ = self.create_ngrvi_mask(bands_chw)
-        # Restrict to pixels that belong to this segment
-        ngrvi_seg_mask = (ngrvi_seg_mask > 0).astype(np.uint8) & segment_mask
+        x, y, w, h = bbox
+
+        # Crop the pre-computed tile NGRVI mask to this segment's bbox and
+        # intersect with the per-segment shape mask — identical to training.
+        ngrvi_crop      = (tile_ngrvi_mask[y:y+h, x:x+w] > 0).astype(np.uint8)
+        ngrvi_seg_mask  = ngrvi_crop & segment_mask
 
         if ngrvi_seg_mask.sum() < 9:
             return None
 
-        # Split bands into a plain list — process_multiband expects list[H×W]
-        band_list = [bands_chw[i] for i in range(bands_chw.shape[0])]
+        # Crop bands to bbox — the extractor only needs to see the tight chip
+        band_list = [bands_chw[i, y:y+h, x:x+w] for i in range(bands_chw.shape[0])]
 
         results = self.extractor.process_multiband(
             band_list,
-            band_indices=self.band_indices,   # same indices stored from pretraining
+            band_indices=self.band_indices,
             mask=ngrvi_seg_mask,
             rectangle=False,
-            vegetation_indices=None,
+            vegetation_indices=self.vegetation_indices,
         )
 
         values = []
         for _, feats in sorted(results.items()):
             if feats is None:
-                return None          # extractor failed for this segment
+                return None
             for _, val in sorted(feats.items()):
                 values.append(float(val))
 
@@ -293,21 +252,20 @@ class NgrviApproach:
         if DBG:
             print(f"Shape: {bands.shape}, dtype: {bands.dtype}, min: {bands.min():.4f}, max: {bands.max():.4f}")
 
-        # ── 1. Build whole-tile NGRVI mask ───────────────────────────────────
+        # ── 1. Compute NGRVI mask ONCE for the whole tile ────────────────────
         ngrvi_mask, _ = self.create_ngrvi_mask(bands)
 
         if DBG:
             print(f"Extracting segmented objects from tile_{row}_{column}...")
 
-        # ── 2. Find connected components (per-segment masks) ─────────────────
-        # extract_segmented_objects returns export_masks=True so obj == uint8 mask
+        # ── 2. Find connected components ─────────────────────────────────────
         results = self.extract_segmented_objects(
-            self.rio2cv(bands),   # HWC view (used only for shape / bbox maths)
+            self.rio2cv(bands),
             ngrvi_mask,
             row,
             column,
             export_masks=True,
-            save_labels=False,    # we write labels ourselves after SVM scoring
+            save_labels=False,
         )
 
         if not results:
@@ -315,40 +273,48 @@ class NgrviApproach:
                 print(f"  tile_{row}_{column}: no segments passed area filter — skipping")
             return
 
-        # ── 3. Score each segment through the pretrained SVM pipeline ────────
+        # ── 3. Extract feature vectors (crops, not full-tile) ─────────────────
+        valid_segms: list = []
+        valid_vecs:  list = []
+
+        for segm, bbox, seg_mask in results:
+            vec = self.extract_feat_vector(bands, seg_mask, bbox, ngrvi_mask)
+            if vec is not None:
+                valid_segms.append(segm)
+                valid_vecs.append(vec)
+
+        if not valid_vecs:
+            if DBG:
+                print(f"  tile_{row}_{column}: all segments too small after NGRVI masking")
+            return
+
+        # ── 4. Score ALL segments in one batch SVM call ──────────────────────
+        X          = np.vstack(valid_vecs)                          # (N, n_features)
+        preds      = self.pipeline.predict(X)                       # (N,)
+        scores     = self.pipeline.decision_function(X)             # (N,)
+
+        # ── 5. Write only inlier labels ──────────────────────────────────────
         label_lines: list[str] = []
         n_inlier = 0
 
-        for segm, bbox, seg_mask in results:
-            # seg_mask is (H, W) uint8 with values 0/1 from export_masks=True
-            vec = self.extract_feat_vector(bands, seg_mask)
-
-            if vec is None:
-                if DBG:
-                    print(f"  tile_{row}_{column}: segment too small after NGRVI masking — skip")
-                continue
-
-            pred  = self.pipeline.predict(vec.reshape(1, -1))[0]
-            score = self.pipeline.decision_function(vec.reshape(1, -1))[0]
-
-            if pred == 1:          # inlier → keep
+        for segm, pred, score in zip(valid_segms, preds, scores):
+            if pred == 1:
                 n_inlier += 1
                 x1, y1, x2, y2, x3, y3, x4, y4 = segm
                 label_lines.append(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
                 if DBG:
-                    print(f"  tile_{row}_{column}:  IN-GROUP  ✓  bbox={bbox}  score={score:+.4f}")
+                    print(f"  tile_{row}_{column}:  IN-GROUP  ✓  score={score:+.4f}")
             else:
                 if DBG:
-                    print(f"  tile_{row}_{column}: OUT-GROUP  ✗  bbox={bbox}  score={score:+.4f}")
+                    print(f"  tile_{row}_{column}: OUT-GROUP  ✗  score={score:+.4f}")
 
-        # ── 4. Write label file only if there are any inliers ────────────────
         if label_lines:
             label_path = self.labels_dir / f"tile_{row}_{column}.txt"
             with open(label_path, "w") as f:
                 f.writelines(label_lines)
 
         if DBG:
-            print(f"  tile_{row}_{column}: {n_inlier}/{len(results)} segments accepted by SVM")
+            print(f"  tile_{row}_{column}: {n_inlier}/{len(valid_vecs)} segments accepted by SVM")
 
 
     def process_orthomosaic(self, args: ApproachArgs):
@@ -410,18 +376,18 @@ if __name__ == "__main__":
     home = Path.home()
     base_dir = Path.home() / "SDU/MasterThesis"
     # model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
-    model_path = home / "SDU/MasterThesis/OpenCV/svm_output/pretrain_output_model.joblib"
+    model_path = home / "SDU/MasterThesis/OpenCV/svm_output_rgb/pretrain_output_model.joblib"
     appr = NgrviApproach(model_path)
 
     orthomosaics: list[ApproachArgs] = [
-        ApproachArgs(
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
-            orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-        ),
-        ApproachArgs(
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-            orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        ),
+        # ApproachArgs(
+        #     ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+        #     orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+        # ),
+        # ApproachArgs(
+        #     ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        #     orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+        # ),
         ApproachArgs(
             ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
             orthomosaic_path= base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",

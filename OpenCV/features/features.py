@@ -15,6 +15,10 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from create_indexes import Indices, Bands, compute_index
 
 class FeatureExtractor:
+    @classmethod
+    def get_feature_names(cls):
+        return ['contrast', 'dissimilarity', 'homogeneity', 'ASM', 'energy', 'correlation', 'mean', 'variance', 'std', 'entropy']
+
     def __calculate_glcm_features(
         self,
         band_data,
