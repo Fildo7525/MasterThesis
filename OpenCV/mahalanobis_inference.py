@@ -524,33 +524,31 @@ if __name__ == "__main__":
 
     cpu_count = os.cpu_count() or 1
     N_WORKERS  = max(1, cpu_count - 1)   # leave one core for the OS
+    MAHAL_DIR = base_dir / "OpenCV/mahal_output_INDICES_v3"
 
     configs = [
         # InferenceConfig(
         #     ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
         #     gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
         #     shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/labels_shapefile.shp",
-        #     mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
+        #     mahal_dir = MAHAL_DIR,
         #     tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_small/tiles",
-        #     accept_pct = "95pct",
         #     n_workers = N_WORKERS,
         # ),
         # InferenceConfig(
         #     ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
         #     gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
         #     shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
-        #     mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
+        #     mahal_dir = MAHAL_DIR,
         #     tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_mid/tiles",
-        #     accept_pct = "95pct",
         #     n_workers = N_WORKERS,
         # ),
         InferenceConfig(
             ortho_path = base_dir /"Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v3.tif",
             gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
             shp_path = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
-            mahal_dir = base_dir / "OpenCV/mahal_output_INDICES_v3",
+            mahal_dir = MAHAL_DIR,
             tiles_dir = base_dir / "OpenCV/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v3/tiles",
-            accept_pct = "95pct",
             n_workers = N_WORKERS,
         ),
     ]
@@ -562,7 +560,7 @@ if __name__ == "__main__":
 
 
     print(f"Using {N_WORKERS} worker processes")
-    pcts = ["95pct", "98pct", "99pct", "100pct"]
+    pcts = list(json.load(open("mahal_output/thresholds.json"))["thresholds"].keys())
     for cfg in configs:
         for pct in pcts:
             cfg.accept_pct = pct

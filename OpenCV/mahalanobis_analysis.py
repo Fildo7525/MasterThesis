@@ -36,6 +36,7 @@ from sklearn.covariance import LedoitWolf   # robust cov estimator
 from scipy.stats import shapiro
 
 from create_indexes import Indices, Bands
+import shutil
 
 # ──────────────────────────────────────────────────────────────
 # CONFIG
@@ -291,6 +292,16 @@ def plot_cumulative_acceptance(distances: np.ndarray,
 # ── main ───────────────────────────────────────────────────────
 
 def main():
+    if OUT_DIR.exists():
+        existing_dirs = OUT_DIR.parent.glob(f"{OUT_DIR.stem}_*")
+        new_name_for_existing = OUT_DIR.parent / f"{OUT_DIR.stem}_0001"
+        nums = sorted(list(map(int, (p.stem.split("_")[-1] for p in existing_dirs if p.is_dir() and p.stem.startswith(OUT_DIR.stem)))))
+        max_num = nums[-1] if nums else 0
+        new_name_for_existing = OUT_DIR.parent / f"{OUT_DIR.stem}_{max_num + 1:04}"
+
+        shutil.move(str(OUT_DIR), str(new_name_for_existing))
+        print(f"The old output is moved to {new_name_for_existing}")
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # 1. features
@@ -385,7 +396,7 @@ def main():
             "max":  float(distances.max()),
             "std":  float(distances.std()),
         },
-        "thresholds": {f"{k*100:.0f}pct": v for k, v in thresholds.items()},
+        "thresholds": {f"{k*100:.2f}pct": v for k, v in thresholds.items()},
         "chi_theoretical_95": float(stats.chi.ppf(0.95, df=n_dims)),
         "bands": BANDS_TO_USE,
         "indices": INDICES_TO_USE,
