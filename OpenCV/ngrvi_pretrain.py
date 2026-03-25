@@ -20,16 +20,16 @@ from create_indexes import scale_to_uint16
 
 import cv2 as cv
 
-NU = 0.01
-PREDICTION_PROBABILITY_THRESHOLD = 1  # Adjust as needed (e.g., 0.1 for more leniency)
+NU = 0.001
+PREDICTION_PROBABILITY_THRESHOLD = 0.9  # Adjust as needed (e.g., 0.1 for more leniency)
 UINT16_MAX = 65_535
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_rgb"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb"
 if not OUTPUT_PATH.exists():
     OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
 
-BANDS_TO_USE = [Bands.RED, Bands.GREEN, Bands.BLUE]
-INDICES_TO_USE = None # [Indices.NGRDI, Indices.NGRVI, Indices.RVI, Indices.OSAVI, Indices.NGBDI, Indices.NDVI, Indices.CIVE]
+BANDS_TO_USE = [ Bands.NIR, Bands.EXTEND_RED ] # [Bands.RED, Bands.GREEN]
+INDICES_TO_USE = [ Indices.NGRDI ]
 
 @dataclass
 class PretrainConfig:
@@ -52,7 +52,7 @@ class Pretrainer:
 
         self.pipeline = Pipeline([
             ("scaler", StandardScaler()),
-            ("oc_svm", OneClassSVM(kernel=kernel, nu=nu, gamma="scale")),
+            ("oc_svm", OneClassSVM(kernel = kernel, nu = nu, gamma = "scale")),
         ])
         self.band_indices = band_indices
         self.vegetation_indices = vegetation_indices
@@ -98,12 +98,6 @@ class Pretrainer:
         )
         pixel_mask = ~outside      # True = inside polygon
 
-        # cv.imshow("Polygon Mask", pixel_mask.astype(np.uint8) * 255)
-        # key = cv.waitKey(0)
-        # cv.destroyAllWindows()
-        # if key == ord("q"):
-        #     exit(0)
-
         return window, pixel_mask
 
     def extract_vector_from_polygon(self, geometry, src: rasterio.DatasetReader,
@@ -125,31 +119,11 @@ class Pretrainer:
         actual_indices      = list(range(src.count))
 
         scale = 65535
-        # print(f"  Reading bands {band_indices_1based} from window {window} (size {window.width}×{window.height})")
         chip = src.read(band_indices_1based, window=window).astype(np.float32) / scale  # (bands, H, W)
-
-
 
         # Use the existing FeatureExtractor with the polygon mask
         bands = [band for band in chip[:len(actual_indices)]]  # Only the bands we care about
-        ngrvi_mask, ngrvi_u16 = self.create_ngrvi_mask(chip)
-        # if DBG:
-        #     print(f"  NGRVI mask has shape {ngrvi_mask.shape}, std={ngrvi_u16.std():.2f}, mean={ngrvi_u16.mean():.2f}")
-
-        #     cv.imshow("Polygon Chip (NGRVI)", ngrvi_u16)  # Show NGRVI as RGB
-        #     cv.imshow("Polygon Chip", np.transpose(chip, (1, 2, 0))[:, :, :3])  # Show RGB if available
-        #     for i, band in enumerate(bands):
-        #         cv.imshow(f"Band {i}", band)
-
-        # cv.imshow("Polygon Mask", ngrvi_mask)
-
-        #     cv.imwrite("./polygon_mask.png", ngrvi_mask)
-        #     cv.imwrite("./polygon_ngrvi.png", ngrvi_u16)
-
-        # key = cv.waitKey(0)
-        # cv.destroyAllWindows()
-        # if key == ord("q"):
-        #     exit(0)
+        ngrvi_mask, _ = self.create_ngrvi_mask(chip)
 
         results = extractor.process_multiband(
             bands,
@@ -158,16 +132,6 @@ class Pretrainer:
             rectangle=self.rectangle,
             vegetation_indices=vegetation_indices
         )
-        # if DBG:
-        # for name, values_dict in results.items():
-        #     print(f"  {name}:")
-        #     if values_dict is None:
-        #         print("    No features extracted (too small or empty polygon)")
-        #         return None
-
-        #     for feat_name, value in values_dict.items():
-        #         print(f"    {feat_name}: {value}")
-
 
         values = []
         for _, feats in sorted(results.items()):
@@ -180,11 +144,6 @@ class Pretrainer:
 
     def create_ngrvi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
-
-        # if DBG:
-        # print(f"Creating NGRVI mask from {len(list_bands)} bands")
-        # for i, band in enumerate(bands):
-        #     print(f"  Band {i} shape: {band.shape}, dtype: {band.dtype}")
 
         index = compute_index(Indices.NGRVI.name, list_bands)
         ngrdi_u16 = scale_to_uint16(index, Indices.NGRVI.name)
@@ -256,7 +215,12 @@ class Pretrainer:
 
         print("── Extracting features from polygons ────────────────────")
         print("  Processing shapefile:", shapefile_path)
-        X = self.build_feature_matrix(ortho_path, shapefile_path, self.band_indices, vegetation_indices=self.vegetation_indices, limit=limit)
+        X = self.build_feature_matrix(
+            ortho_path,
+            shapefile_path,
+            self.band_indices,
+            vegetation_indices=self.vegetation_indices,
+            limit=limit)
         self.last_X = X
         print(f"   Feature matrix: {X.shape[0]} samples × {X.shape[1]} features")
 
@@ -285,9 +249,17 @@ def get_feature_names():
     features = FeatureExtractor.get_feature_names()
 
     feature_names = []
-    for band  in BANDS_TO_USE:
-        for feat in features:
-            feature_names.append(band.name + "_" + feat)
+    if BANDS_TO_USE is not None:
+        for band in BANDS_TO_USE:
+            for feat in features:
+                feature_names.append(band.name + "_" + feat)
+
+    if INDICES_TO_USE is not None:
+        for band in INDICES_TO_USE:
+            for feat in features:
+                feature_names.append(band.name + "_" + feat)
+
+    return feature_names
 
 
 
@@ -312,18 +284,18 @@ if __name__ == "__main__":
     DBG = True
 
     trainer = Pretrainer(
-        nu=NU,
-        kernel="rbf", # "rbf", "linear", "poly", "sigmoid"
-        band_indices=BANDS_TO_USE,
+        nu = NU,
+        kernel = "rbf", # "rbf", "linear", "poly", "sigmoid"
+        band_indices = BANDS_TO_USE,
         rectangle = False,
-        vegetation_indices=INDICES_TO_USE,
+        vegetation_indices = INDICES_TO_USE,
     )
 
     for cfg in args:
         trainer.train(
-            ortho_path=Path(cfg.ortho_path),
-            shapefile_path=Path(cfg.shapefile_path),
-            limit = 0.8,
+            ortho_path = Path(cfg.ortho_path),
+            shapefile_path = Path(cfg.shapefile_path),
+            limit = PREDICTION_PROBABILITY_THRESHOLD,
         )
 
     trainer.dump(OUTPUT_PATH / "pretrain_output_model.joblib")

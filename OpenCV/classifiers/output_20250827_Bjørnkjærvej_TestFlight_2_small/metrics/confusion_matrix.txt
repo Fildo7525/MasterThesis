@@ -1,0 +1,8 @@
+TP: 1
+FP: 18
+FN: 143
+TN: 0
+Precision 0.0526
+Recall 0.0069
+F1-Score 0.0123
+Accuracy 0.0062

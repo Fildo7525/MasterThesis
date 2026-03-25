@@ -1,0 +1,11 @@
+{
+    "model": "Pipeline",
+    "bands": [
+        "NIR",
+        "EXTEND_RED"
+    ],
+    "vegetation_indices": [
+        "NGRDI"
+    ],
+    "model_path": "/home/fildo/SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
+}

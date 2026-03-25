@@ -2,10 +2,13 @@ import joblib
 import cv2 as cv
 from cv2.typing import MatLike
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import shutil
 import sys
+import os
+from tqdm import tqdm
+import json
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from create_indexes import *
@@ -25,11 +28,51 @@ MAX_AREA_PX = 16_200
 MIN_AREA_M2 = 0.004
 MAX_AREA_M2 = 0.404457
 
+N_WORKERS = max(1, (os.cpu_count() or 1) // 2)
+
 @dataclass
 class ApproachArgs:
     ground_truth_shp: Path
     orthomosaic_path: Path
     rename_existing_output_dir: bool = True
+
+
+
+# ---------------------------------------------------------------------------
+# Multiprocessing worker — must be module-level so spawn can pickle it.
+# The worker re-loads the model from disk in its own clean process.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _TileTask:
+    """Picklable bundle of everything one worker needs for one tile."""
+    tile_path:  Path
+    labels_dir: Path
+    model_path: str   # str so Path serialises cleanly across processes
+
+
+def _process_tile_worker(task: _TileTask) -> str:
+    """
+    Runs in a spawned worker.  Re-creates NgrviApproach (loads model from
+    disk) then executes the full pipeline on one pre-split tile .tif:
+        NGRVI mask -> connected components -> feature extraction -> SVM
+    Returns a short status string for optional progress logging.
+    """
+    import rasterio
+    from rasterio.windows import Window
+
+    appr = NgrviApproach(task.model_path)
+    appr.labels_dir = Path(task.labels_dir)
+
+    tile_path  = Path(task.tile_path)
+    stem_parts = tile_path.stem.split("_")   # "tile_{row}_{col}"
+    row, col   = int(stem_parts[1]), int(stem_parts[2])
+
+    with rasterio.open(tile_path) as src:
+        window = Window(0, 0, src.width, src.height)
+        appr.process_window(src, window, row, col)
+
+    return f"tile_{row}_{col}: done"
 
 
 class NgrviApproach:
@@ -38,6 +81,7 @@ class NgrviApproach:
         self.labels_dir = self.output / "labels"
         self.extractor = FeatureExtractor()
 
+        self._model_path = Path(model_path)
         meta = joblib.load(model_path)
         self.pipeline = meta["pipeline"]
         self.band_indices = meta["band_indices"]
@@ -318,55 +362,85 @@ class NgrviApproach:
 
 
     def process_orthomosaic(self, args: ApproachArgs):
+        import multiprocessing as mp
+
         output: Path = Path.cwd() / f"output_{args.orthomosaic_path.stem}"
-        # self.output = output
-        # self.labels_dir = self.output / "labels"
         self.set_output(output, args.rename_existing_output_dir)
 
+        tiles_dir  = self.output / "tiles"
+        labels_dir = self.labels_dir   # already created by set_output
+
+        with open(self.output / "run_params.json", "w") as f:
+            json.dump({
+                "bands": [band.name for band in self.band_indices] or "None",
+                "vegetation_indices": [i.name for i in self.vegetation_indices] or "None",
+                "model_path": str(self._model_path)
+            }, f, indent=4)
+
+        # Phase 1: split orthomosaic into tiles on disk (no processing yet)
+        print("-- Phase 1: splitting orthomosaic into tiles")
         split_geotiff(
-            input_tif = args.orthomosaic_path,
-            output_dir = self.output / "tiles",
-            tile_size=2048,
-            overlap = 100,
-            process_window=self.process_window,
+            input_tif  = args.orthomosaic_path,
+            output_dir = tiles_dir,
+            tile_size  = 1024,
+            overlap    = 100,
         )
 
-        print("🆀 Converting YOLO labels to shapefile...")
+        # Phase 2: process tiles in parallel via spawn Pool
+        tile_paths = sorted(tiles_dir.glob("tile_*.tif"))
+        if not tile_paths:
+            raise RuntimeError(f"No tiles found in {tiles_dir}")
 
+        print(f"\n-- Phase 2: processing {len(tile_paths)} tiles on {N_WORKERS} worker processes")
+
+        tasks = [
+            _TileTask(
+                tile_path  = p,
+                labels_dir = labels_dir,
+                model_path = str(self._model_path),
+            )
+            for p in tile_paths
+        ]
+
+        ctx = mp.get_context("spawn")
+        with ctx.Pool(processes=N_WORKERS) as pool:
+            for result in tqdm(
+                pool.imap_unordered(_process_tile_worker, tasks),
+                total=len(tasks),
+                desc="Tiles",
+            ):
+                if DBG and result:
+                    print(result)
+
+        # Phase 3: convert labels to shapefile
+        print("\n-- Phase 3: converting labels to shapefile")
         converter = YOLOShapefileConverter()
-        pred_shp = self.output / "labels_shapefile.shp"
+        pred_shp  = self.output / "labels_shapefile.shp"
         converter.labels_to_shapefile(
-            labels_dir = self.labels_dir,
-            reference_tif_dir = self.output / "tiles",
-            output_shapefile = pred_shp,
-            min_area = MIN_AREA_M2,
-            max_area = MAX_AREA_M2,
+            labels_dir        = labels_dir,
+            reference_tif_dir = tiles_dir,
+            output_shapefile  = pred_shp,
+            min_area          = MIN_AREA_M2,
+            max_area          = MAX_AREA_M2,
         )
+        print("Labels dir :", labels_dir.absolute())
+        print("Pred shp   :", pred_shp.absolute())
 
-        print("Labels saved to files in directory:", self.labels_dir.absolute())
-        print("Predicted shapefile saved to:", pred_shp.absolute())
-
+        # Phase 4: compute metrics
         iou_threshold = 0.1
-
-        print("Computing confusion matrix...")
-        print(f"Ground truth shape: {args.ground_truth_shp}")
-        print(f"Predictions shape: {pred_shp}")
-        print(f"IoU threshold: {iou_threshold}")
-
+        print(f"\n-- Phase 4: computing metrics (IoU >= {iou_threshold})")
         metrics = Metrics()
-        results: ConfusionMatrix = metrics.compute_from_shapefiles(
-            gt_shp = args.ground_truth_shp,
-            pred_shp = pred_shp,
-            reference_tif_dir = self.output / "tiles",
-            iou_threshold=iou_threshold
+        cm: ConfusionMatrix = metrics.compute_from_shapefiles(
+            gt_shp            = args.ground_truth_shp,
+            pred_shp          = pred_shp,
+            reference_tif_dir = tiles_dir,
+            iou_threshold     = iou_threshold,
         )
-        # results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
         metrics_path = self.output / "metrics"
         metrics_path.mkdir(parents=True, exist_ok=True)
-        results.print(save = metrics_path / "confusion_matrix.txt")
-        results.plot(hold=True, save = metrics_path / "confusion_matrix.png")
-        results.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
-
+        cm.print(save = metrics_path / "confusion_matrix.txt")
+        cm.plot(hold=True, save = metrics_path / "confusion_matrix.png")
+        cm.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
 
 
 if __name__ == "__main__":
@@ -376,7 +450,7 @@ if __name__ == "__main__":
     home = Path.home()
     base_dir = Path.home() / "SDU/MasterThesis"
     # model_path = base_dir / "Orthomosaics/pretrain_output_model.joblib"
-    model_path = home / "SDU/MasterThesis/OpenCV/svm_output_rgb/pretrain_output_model.joblib"
+    model_path = home / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
     appr = NgrviApproach(model_path)
 
     orthomosaics: list[ApproachArgs] = [
