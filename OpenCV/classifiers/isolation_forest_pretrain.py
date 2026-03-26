@@ -4,22 +4,29 @@ isolation_forest_pretrain.py
 Drop-in replacement for ngrvi_pretrain.py that uses an Isolation Forest
 instead of a One-Class SVM.
 
+Pipeline inside IsolationForestDetector
+----------------------------------------
+    StandardScaler → PCA → IsolationForest
+
+PCA is fitted on the scaled training data.  The number of components is chosen
+by the `pca_variance` parameter (default 0.95 = keep enough components to
+explain 95 % of variance).  The fitted PCA object is exposed as `detector.pca_`
+so run_diagnostics.py can plot loadings and the PC1/PC2 decision boundary.
+
 Usage
 -----
     python isolation_forest_pretrain.py
 
-The saved .joblib file has the same structure as the original:
+Saved .joblib structure:
     {
-        "pipeline":          IsolationForestDetector,
-        "band_indices":      list[Bands] | None,
+        "pipeline":           IsolationForestDetector,
+        "band_indices":       list[Bands] | None,
         "vegetation_indices": list[Indices] | None,
     }
 
-NgrviApproach loads the file and calls:
+NgrviApproach calls:
     pipeline.predict(X)           → +1 / -1
     pipeline.decision_function(X) → anomaly score (higher = more normal)
-
-Both are implemented on IsolationForestDetector via the BaseDetector ABC.
 """
 
 from __future__ import annotations
@@ -38,6 +45,7 @@ import geopandas as gpd
 import cv2 as cv
 from rasterio.features import geometry_mask
 from rasterio.windows import from_bounds, Window, transform
+from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
@@ -46,24 +54,24 @@ from base_detector import BaseDetector
 from create_indexes import Bands, Indices, compute_index, scale_to_uint16
 from features.features import FeatureExtractor
 
-from svm_diagnostics import plot_all
 # ---------------------------------------------------------------------------
 # Tuneable constants
 # ---------------------------------------------------------------------------
 
-N_ESTIMATORS           = 200    # more trees → more stable, slower training
-MAX_SAMPLES            = "auto" # "auto" = min(256, n_samples)
-CONTAMINATION          = 0.01   # expected fraction of outliers in training data
-                                 # keep small since your training set is pure inliers
-RANDOM_STATE           = 42
+N_ESTIMATORS  = 200     # more trees → more stable, slower training
+MAX_SAMPLES   = "auto"  # "auto" = min(256, n_samples)
+CONTAMINATION = 0.01    # expected fraction of outliers in training data
+RANDOM_STATE  = 42
+
+PCA_VARIANCE  = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/iforest_output_rgb"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/iforest_output_nrn"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-BANDS_TO_USE   = [Bands.RED, Bands.GREEN, Bands.BLUE]
-INDICES_TO_USE = None
+BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]
+INDICES_TO_USE = [Indices.NGRDI]
 
 
 # ---------------------------------------------------------------------------
@@ -72,26 +80,33 @@ INDICES_TO_USE = None
 
 class IsolationForestDetector(BaseDetector):
     """
-    Wraps sklearn IsolationForest + StandardScaler behind the BaseDetector
+    Wraps StandardScaler → PCA → IsolationForest behind the BaseDetector
     interface so NgrviApproach.process_window() needs no changes.
+
+    Attributes exposed for diagnostics
+    ------------------------------------
+    scaler_   : fitted StandardScaler
+    pca_      : fitted PCA  (components_, explained_variance_ratio_, etc.)
+    model     : fitted IsolationForest
 
     Score convention
     ----------------
     sklearn IsolationForest.score_samples() returns the negative average
-    path-length anomaly score: MORE NEGATIVE = more anomalous.
-    We negate it so that HIGHER = more normal, matching the OCSVM convention
-    used in the existing debug prints.
+    path-length anomaly score — higher is more normal, so we pass it
+    through unchanged.
     """
 
     def __init__(
         self,
-        n_estimators: int   = N_ESTIMATORS,
-        max_samples         = MAX_SAMPLES,
-        contamination       = CONTAMINATION,
-        random_state: int   = RANDOM_STATE,
+        n_estimators:  int   = N_ESTIMATORS,
+        max_samples          = MAX_SAMPLES,
+        contamination        = CONTAMINATION,
+        random_state:  int   = RANDOM_STATE,
+        pca_variance:  float = PCA_VARIANCE,
     ):
-        self.scaler = StandardScaler()
-        self.model  = IsolationForest(
+        self.scaler_ = StandardScaler()
+        self.pca_    = PCA(n_components=pca_variance, random_state=random_state)
+        self.model   = IsolationForest(
             n_estimators  = n_estimators,
             max_samples   = max_samples,
             contamination = contamination,
@@ -105,29 +120,38 @@ class IsolationForestDetector(BaseDetector):
     # ------------------------------------------------------------------
 
     def fit(self, X: np.ndarray) -> "IsolationForestDetector":
-        X_scaled = self.scaler.fit_transform(X)
-        self.model.fit(X_scaled)
+        X_scaled = self.scaler_.fit_transform(X)
+        X_pca    = self.pca_.fit_transform(X_scaled)
+        self.model.fit(X_pca)
         self._fitted = True
+
+        n_kept = self.pca_.n_components_
+        total_var = self.pca_.explained_variance_ratio_.sum()
+        print(f"   PCA: {X.shape[1]} features → {n_kept} components "
+              f"({total_var * 100:.1f} % variance retained)")
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Returns +1 (inlier) or -1 (outlier)."""
         self._check_fitted(self._fitted, "IsolationForestDetector")
-        return self.model.predict(self.scaler.transform(X))
+        return self.model.predict(self._transform(X))
 
     def score(self, X: np.ndarray) -> np.ndarray:
-        """
-        Higher score → more normal.
-        sklearn's score_samples returns values in roughly [-0.5, 0.5];
-        negating puts it in [−0.5, +0.5] with +0.5 = most normal.
-        """
+        """Higher score → more normal."""
         self._check_fitted(self._fitted, "IsolationForestDetector")
-        # score_samples: higher = more normal in sklearn convention already
-        return self.model.score_samples(self.scaler.transform(X))
+        return self.model.score_samples(self._transform(X))
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _transform(self, X: np.ndarray) -> np.ndarray:
+        """Scale then project through PCA — used by predict() and score()."""
+        return self.pca_.transform(self.scaler_.transform(X))
 
 
 # ---------------------------------------------------------------------------
-# Pretrainer  (mirrors ngrvi_pretrain.Pretrainer exactly)
+# Pretrainer
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -139,19 +163,23 @@ class PretrainConfig:
 class Pretrainer:
     def __init__(
         self,
-        n_estimators: int = N_ESTIMATORS,
-        band_indices:        list[Bands]   | None = None,
-        vegetation_indices:  list[Indices] | None = None,
-        rectangle: bool = False,
+        n_estimators: int                        = N_ESTIMATORS,
+        pca_variance: float                      = PCA_VARIANCE,
+        band_indices: list[Bands] | None         = None,
+        vegetation_indices: list[Indices] | None = None,
+        rectangle: bool                          = False,
     ):
-        self.pipeline          = IsolationForestDetector(n_estimators=n_estimators)
-        self.band_indices      = band_indices
+        self.pipeline = IsolationForestDetector(
+            n_estimators = n_estimators,
+            pca_variance = pca_variance,
+        )
+        self.band_indices       = band_indices
         self.vegetation_indices = vegetation_indices
-        self.rectangle         = rectangle
+        self.rectangle          = rectangle
         self.last_X: np.ndarray | None = None
 
     # ------------------------------------------------------------------
-    # Geometry helpers  (identical to original Pretrainer)
+    # Geometry helpers
     # ------------------------------------------------------------------
 
     def polygon_to_pixel_mask(self, geometry, src: rasterio.DatasetReader):
@@ -164,7 +192,7 @@ class Pretrainer:
         win_height    = int(window.height)
         win_width     = int(window.width)
 
-        outside    = geometry_mask(
+        outside = geometry_mask(
             [geometry], transform=win_transform, invert=False,
             out_shape=(win_height, win_width),
         )
@@ -192,12 +220,12 @@ class Pretrainer:
         if pixel_mask.sum() < 9:
             return None
 
-        scale = 65535
+        scale               = 65535
         band_indices_1based = list(range(1, 8))
         actual_indices      = list(range(src.count))
 
         chip  = src.read(band_indices_1based, window=window).astype(np.float32) / scale
-        bands = [band for band in chip[:len(actual_indices)]]  # Only the bands we care about
+        bands = [band for band in chip[:len(actual_indices)]]
 
         ngrvi_mask, _ = self.create_ngrvi_mask(chip)
 
@@ -282,7 +310,7 @@ class Pretrainer:
         self.last_X = X
         print(f"   Feature matrix: {X.shape[0]} × {X.shape[1]}")
 
-        print("\n── Fitting Isolation Forest ─────────────────────────────")
+        print("\n── Fitting Isolation Forest (with PCA) ──────────────────")
         self.pipeline.fit(X)
 
         preds = self.pipeline.predict(X)
@@ -291,7 +319,7 @@ class Pretrainer:
 
     def dump(self, out_path: Path):
         meta = {
-            "pipeline":           self.pipeline,   # NgrviApproach key
+            "pipeline":           self.pipeline,
             "band_indices":       self.band_indices,
             "vegetation_indices": self.vegetation_indices,
         }
@@ -302,21 +330,18 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def get_feature_names():
-    from features.features import FeatureExtractor
-    features = FeatureExtractor.get_feature_names()
 
+def get_feature_names():
+    features = FeatureExtractor.get_feature_names()
     feature_names = []
     if BANDS_TO_USE is not None:
         for band in BANDS_TO_USE:
             for feat in features:
                 feature_names.append(band.name + "_" + feat)
-
     if INDICES_TO_USE is not None:
         for band in INDICES_TO_USE:
             for feat in features:
                 feature_names.append(band.name + "_" + feat)
-
     return feature_names
 
 
@@ -328,33 +353,34 @@ if __name__ == "__main__":
             ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
             shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
         ),
-        # PretrainConfig(
-        #     ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        #     shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-        # ),
-        # PretrainConfig(
-        #     ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-        #     shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
-        # ),
+        PretrainConfig(
+            ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+            shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        ),
+        PretrainConfig(
+            ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
+            shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+        ),
     ]
 
     trainer = Pretrainer(
         n_estimators       = N_ESTIMATORS,
+        pca_variance       = PCA_VARIANCE,
         band_indices       = BANDS_TO_USE,
         vegetation_indices = INDICES_TO_USE,
         rectangle          = False,
     )
 
     for cfg in configs:
-        trainer.train(ortho_path=cfg.ortho_path, shapefile_path=cfg.shapefile_path, limit=0.5)
+        trainer.train(ortho_path=cfg.ortho_path, shapefile_path=cfg.shapefile_path, limit=0.8)
 
     trainer.dump(OUTPUT_PATH / "iforest_model.joblib")
+
     feature_names = get_feature_names()
 
-    from run_diagnostics import plot_feature_matrix
-    plot_feature_matrix(
-        trainer,
-        OUTPUT_PATH / "feature_matrix.png",
-        feature_names = feature_names,
-        max_features = 10,
-    )
+    from run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
+    plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
+                        feature_names=feature_names, max_features=10)
+    plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
+                        feature_names=feature_names)
+    plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")

@@ -399,7 +399,7 @@ def main():
         "thresholds": {f"{k*100:.2f}pct": v for k, v in thresholds.items()},
         "chi_theoretical_95": float(stats.chi.ppf(0.95, df=n_dims)),
         "bands": BANDS_TO_USE,
-        "indices": INDICES_TO_USE,
+        "indices": INDICES_TO_USE
     }
     with open(OUT_DIR / "thresholds.json", "w") as f:
         json.dump(meta, f, indent=2)

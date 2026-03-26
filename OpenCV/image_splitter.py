@@ -26,6 +26,7 @@ def process_tile(
         overlap: int = 0,
         angle:float = 0.0,
         offset: tuple = (0, 0),
+        save: bool = False,
         process_window: Callable[[DatasetReader, Window, int, int], None | np.ndarray] = lambda src, window, i, j: np.array([])):
 
     # Define pixel offsets
@@ -82,6 +83,9 @@ def process_tile(
 
     # User defined processing function
     process_window(src, window, i, j)
+    if not save:
+        return
+
     bands = src.read(window=window)
 
     # Read the window and write it out
@@ -123,6 +127,7 @@ def split_geotiff(input_tif: Path,
         overlap: int = 0,
         angle: float = 0.0,
         offset: tuple = (0, 0),
+        save: bool = True,
         process_window: Callable[[DatasetReader, Window, int, int], np.ndarray | None] = lambda src, window, i, j: np.array([])):
     """
     Splits a multispectral GeoTIFF into square tiles with optional overlap.
@@ -174,7 +179,7 @@ def split_geotiff(input_tif: Path,
             for i in range(n_rows):
                 for j in range(n_cols):
                     try:
-                        process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset,process_window)
+                        process_tile(src, i, j, tile_size, output_dir, overlap, angle, offset, save, process_window)
                         pbar.update(1)
                     except Exception as e:
                         print(f"Error processing tile ({i}, {j}): {e}")

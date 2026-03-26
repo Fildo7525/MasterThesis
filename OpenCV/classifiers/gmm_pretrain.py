@@ -4,27 +4,31 @@ gmm_pretrain.py
 Drop-in replacement for ngrvi_pretrain.py that uses a Gaussian Mixture Model
 (GMM) for one-class anomaly detection.
 
-How GMM works for one-class detection
---------------------------------------
-The GMM is trained only on inlier data and learns the density of the inlier
-distribution.  At inference, we compute the log-likelihood of each sample
-under the learned model.  Samples with a log-likelihood below a threshold are
-classified as outliers.
+Pipeline inside GMMDetector
+-----------------------------
+    StandardScaler → PCA → GaussianMixture
 
-The threshold is computed automatically after fitting: we score all training
-samples, sort them, and take the `contamination`-th percentile as the cut-off.
-This mirrors how sklearn's IsolationForest sets its own threshold.
+PCA is fitted on the scaled training data.  The number of components is chosen
+by the `pca_variance` parameter (default 0.95 = keep enough components to
+explain 95 % of variance).  The fitted PCA object is exposed as `detector.pca_`
+so run_diagnostics.py can plot loadings and the PC1/PC2 decision boundary.
+
+How one-class detection works
+-------------------------------
+The GMM is trained only on inlier data and learns the density of the inlier
+distribution in PCA space.  At inference, samples with a log-likelihood below
+a threshold (set automatically from the training distribution) are outliers.
 
 Score convention (same as BaseDetector)
 ----------------------------------------
-    score(X)   → higher = more normal  (log-likelihood, less negative = more normal)
+    score(X)   → log-likelihood  (higher = more normal)
     predict(X) → +1 inlier, -1 outlier
 
 Usage
 -----
     python gmm_pretrain.py
 
-Saved .joblib structure (same as ngrvi_pretrain.py):
+Saved .joblib structure:
     {
         "pipeline":           GMMDetector,
         "band_indices":       list[Bands] | None,
@@ -34,8 +38,12 @@ Saved .joblib structure (same as ngrvi_pretrain.py):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sys
 from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from dataclasses import dataclass
 
 import joblib
 import numpy as np
@@ -44,6 +52,7 @@ import geopandas as gpd
 import cv2 as cv
 from rasterio.features import geometry_mask
 from rasterio.windows import from_bounds, Window, transform
+from sklearn.decomposition import PCA
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
@@ -56,20 +65,21 @@ from features.features import FeatureExtractor
 # Tuneable constants
 # ---------------------------------------------------------------------------
 
-N_COMPONENTS  = 3      # number of Gaussians — tune via BIC/AIC (see fit() note)
+N_COMPONENTS  = 3      # number of Gaussians — tune via BIC/AIC
 COVARIANCE    = "full" # "full" | "tied" | "diag" | "spherical"
 MAX_ITER      = 200
 CONTAMINATION = 0.01   # fraction of training samples treated as outliers
-                        # when auto-computing the decision threshold
 RANDOM_STATE  = 42
+
+PCA_VARIANCE  = 0.95   # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/gmm_output_rgb"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/gmm_output_nrn"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-BANDS_TO_USE   = [Bands.RED, Bands.GREEN, Bands.BLUE]
-INDICES_TO_USE = None
+BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]
+INDICES_TO_USE = [Indices.NGRDI]
 
 
 # ---------------------------------------------------------------------------
@@ -78,36 +88,42 @@ INDICES_TO_USE = None
 
 class GMMDetector(BaseDetector):
     """
-    One-class detector backed by a Gaussian Mixture Model.
+    One-class detector: StandardScaler → PCA → GaussianMixture.
 
-    The decision threshold is set automatically during fit() based on the
-    log-likelihood distribution of the training data and the chosen
-    contamination level.
+    Attributes exposed for diagnostics
+    ------------------------------------
+    scaler_   : fitted StandardScaler
+    pca_      : fitted PCA  (components_, explained_variance_ratio_, etc.)
+    model     : fitted GaussianMixture
 
-    Tip: if you are unsure how many Gaussian components to use, call
-    GMMDetector.select_n_components(X) which returns a dict of BIC scores
-    for n = 1 … max_components so you can pick the elbow.
+    The decision threshold is set automatically during fit() from the
+    contamination-th percentile of training log-likelihoods, mirroring
+    how sklearn IsolationForest sets its own offset.
+
+    Tip: call GMMDetector.select_n_components(X) to pick n_components via BIC.
     """
 
     def __init__(
         self,
-        n_components:  int   = N_COMPONENTS,
-        covariance_type: str = COVARIANCE,
-        max_iter:      int   = MAX_ITER,
-        contamination: float = CONTAMINATION,
-        random_state:  int   = RANDOM_STATE,
+        n_components:    int   = N_COMPONENTS,
+        covariance_type: str   = COVARIANCE,
+        max_iter:        int   = MAX_ITER,
+        contamination:   float = CONTAMINATION,
+        random_state:    int   = RANDOM_STATE,
+        pca_variance:    float = PCA_VARIANCE,
     ):
         self.n_components    = n_components
         self.covariance_type = covariance_type
         self.contamination   = contamination
 
-        self.scaler    = StandardScaler()
-        self.model     = GaussianMixture(
+        self.scaler_ = StandardScaler()
+        self.pca_    = PCA(n_components=pca_variance, random_state=random_state)
+        self.model   = GaussianMixture(
             n_components    = n_components,
             covariance_type = covariance_type,
             max_iter        = max_iter,
             random_state    = random_state,
-            n_init          = 3,   # multiple restarts for stability
+            n_init          = 3,
         )
         self._threshold: float | None = None
         self._fitted = False
@@ -117,22 +133,19 @@ class GMMDetector(BaseDetector):
     # ------------------------------------------------------------------
 
     def fit(self, X: np.ndarray) -> "GMMDetector":
-        """
-        Fit scaler + GMM, then compute the log-likelihood threshold.
+        """Fit scaler → PCA → GMM, then auto-compute the decision threshold."""
+        X_scaled = self.scaler_.fit_transform(X)
+        X_pca    = self.pca_.fit_transform(X_scaled)
+        self.model.fit(X_pca)
 
-        The threshold is the `contamination`-th percentile of the training
-        log-likelihoods.  Samples scoring below this are flagged as outliers.
-        """
-        X_scaled = self.scaler.fit_transform(X)
-        self.model.fit(X_scaled)
+        train_scores    = self.model.score_samples(X_pca)
+        self._threshold = float(np.percentile(train_scores, 100 * self.contamination))
+        self._fitted    = True
 
-        # Auto-compute decision threshold from training scores
-        train_scores     = self.model.score_samples(X_scaled)  # log-likelihood per sample
-        self._threshold  = float(
-            np.percentile(train_scores, 100 * self.contamination)
-        )
-        self._fitted = True
-
+        n_kept    = self.pca_.n_components_
+        total_var = self.pca_.explained_variance_ratio_.sum()
+        print(f"   PCA: {X.shape[1]} features → {n_kept} components "
+              f"({total_var * 100:.1f} % variance retained)")
         print(f"   GMM threshold (log-likelihood): {self._threshold:.4f}  "
               f"(contamination={self.contamination})")
         return self
@@ -140,57 +153,59 @@ class GMMDetector(BaseDetector):
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Returns +1 (inlier) or -1 (outlier)."""
         self._check_fitted(self._fitted, "GMMDetector")
-        scores = self.score(X)
-        return np.where(scores >= self._threshold, 1, -1).astype(int)
+        return np.where(self.score(X) >= self._threshold, 1, -1).astype(int)
 
     def score(self, X: np.ndarray) -> np.ndarray:
-        """
-        Log-likelihood per sample.
-        Higher (less negative) = more likely to be an inlier.
-        """
+        """Log-likelihood per sample in PCA space. Higher = more normal."""
         self._check_fitted(self._fitted, "GMMDetector")
-        return self.model.score_samples(self.scaler.transform(X))
+        return self.model.score_samples(self._transform(X))
 
     # ------------------------------------------------------------------
-    # Utility: component selection via BIC
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _transform(self, X: np.ndarray) -> np.ndarray:
+        """Scale then project through PCA — used by predict() and score()."""
+        return self.pca_.transform(self.scaler_.transform(X))
+
+    # ------------------------------------------------------------------
+    # Utility: Gaussian component selection via BIC
     # ------------------------------------------------------------------
 
     @staticmethod
     def select_n_components(
         X: np.ndarray,
-        max_components: int = 10,
-        covariance_type: str = COVARIANCE,
-        random_state: int = RANDOM_STATE,
+        max_components:  int   = 10,
+        covariance_type: str   = COVARIANCE,
+        pca_variance:    float = PCA_VARIANCE,
+        random_state:    int   = RANDOM_STATE,
     ) -> dict[int, float]:
         """
-        Fit GMMs with n = 1 … max_components and return their BIC scores.
-        Lower BIC = better model.  Pick the elbow.
+        Fit GMMs with n = 1 … max_components (in PCA space) and return BIC scores.
+        Lower BIC = better.  Pick the elbow.
 
         Example
         -------
-            bic = GMMDetector.select_n_components(X)
-            best_n = min(bic, key=bic.get)
+            bic  = GMMDetector.select_n_components(X)
+            best = min(bic, key=bic.get)
         """
         scaler   = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+        pca      = PCA(n_components=pca_variance, random_state=random_state)
+        X_pca    = pca.fit_transform(scaler.fit_transform(X))
         bic: dict[int, float] = {}
 
         for n in range(1, max_components + 1):
-            gmm     = GaussianMixture(
-                n_components    = n,
-                covariance_type = covariance_type,
-                random_state    = random_state,
-                n_init          = 3,
-            )
-            gmm.fit(X_scaled)
-            bic[n] = gmm.bic(X_scaled)
+            gmm    = GaussianMixture(n_components=n, covariance_type=covariance_type,
+                                     random_state=random_state, n_init=3)
+            gmm.fit(X_pca)
+            bic[n] = gmm.bic(X_pca)
             print(f"   n_components={n:2d}  BIC={bic[n]:.1f}")
 
         return bic
 
 
 # ---------------------------------------------------------------------------
-# Pretrainer  (mirrors ngrvi_pretrain.Pretrainer exactly)
+# Pretrainer
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -202,15 +217,17 @@ class PretrainConfig:
 class Pretrainer:
     def __init__(
         self,
-        n_components:       int            = N_COMPONENTS,
-        covariance_type:    str            = COVARIANCE,
+        n_components:       int              = N_COMPONENTS,
+        covariance_type:    str              = COVARIANCE,
+        pca_variance:       float            = PCA_VARIANCE,
         band_indices:       list[Bands]   | None = None,
         vegetation_indices: list[Indices] | None = None,
-        rectangle:          bool           = False,
+        rectangle:          bool             = False,
     ):
-        self.detector = GMMDetector(
+        self.pipeline = GMMDetector(
             n_components    = n_components,
             covariance_type = covariance_type,
+            pca_variance    = pca_variance,
         )
         self.band_indices       = band_indices
         self.vegetation_indices = vegetation_indices
@@ -218,7 +235,7 @@ class Pretrainer:
         self.last_X: np.ndarray | None = None
 
     # ------------------------------------------------------------------
-    # Geometry helpers  (identical to ngrvi_pretrain.Pretrainer)
+    # Geometry helpers
     # ------------------------------------------------------------------
 
     def polygon_to_pixel_mask(self, geometry, src: rasterio.DatasetReader):
@@ -264,7 +281,7 @@ class Pretrainer:
         actual_indices      = list(range(src.count))
 
         chip  = src.read(band_indices_1based, window=window).astype(np.float32) / scale
-        bands = [chip[i] for i in range(len(actual_indices))]
+        bands = [band for band in chip[:len(actual_indices)]]
 
         ngrvi_mask, _ = self.create_ngrvi_mask(chip)
 
@@ -341,17 +358,17 @@ class Pretrainer:
 
     def train(
         self,
-        ortho_path:     Path,
-        shapefile_path: Path,
-        limit:          float = 0.8,
-        select_components: bool = False,
+        ortho_path:        Path,
+        shapefile_path:    Path,
+        limit:             float = 0.8,
+        select_components: bool  = False,
     ):
         """
         Parameters
         ----------
         select_components : bool
-            If True, run BIC selection (n=1…10) before fitting the final model
-            and print a recommendation.  Useful for first-time tuning.
+            Run BIC selection (n=1…10) before fitting and print a recommendation.
+            Useful for first-time tuning.
         """
         print("── Extracting features ───────────────────────────────────")
         X = self.build_feature_matrix(
@@ -364,25 +381,26 @@ class Pretrainer:
 
         if select_components:
             print("\n── BIC component selection ──────────────────────────────")
-            bic  = GMMDetector.select_n_components(X)
+            bic  = GMMDetector.select_n_components(X, pca_variance=self.pipeline.pca_.n_components
+                                                   if hasattr(self.pipeline.pca_, "n_components_")
+                                                   else 0.95)
             best = min(bic, key=bic.get)
             print(f"   → Recommended n_components = {best}  (lowest BIC)")
-            # Re-create detector with the best n
-            self.detector = GMMDetector(
+            self.pipeline = GMMDetector(
                 n_components    = best,
-                covariance_type = self.detector.covariance_type,
+                covariance_type = self.pipeline.covariance_type,
             )
 
-        print("\n── Fitting GMM ──────────────────────────────────────────")
-        self.detector.fit(X)
+        print("\n── Fitting GMM (with PCA) ───────────────────────────────")
+        self.pipeline.fit(X)
 
-        preds = self.detector.predict(X)
+        preds = self.pipeline.predict(X)
         n_in  = (preds == 1).sum()
         print(f"   Training support: {n_in}/{len(preds)} classified as inlier")
 
     def dump(self, out_path: Path):
         meta = {
-            "pipeline":           self.detector,   # NgrviApproach key
+            "pipeline":           self.pipeline,
             "band_indices":       self.band_indices,
             "vegetation_indices": self.vegetation_indices,
         }
@@ -393,6 +411,20 @@ class Pretrainer:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+def get_feature_names():
+    features = FeatureExtractor.get_feature_names()
+    feature_names = []
+    if BANDS_TO_USE is not None:
+        for band in BANDS_TO_USE:
+            for feat in features:
+                feature_names.append(band.name + "_" + feat)
+    if INDICES_TO_USE is not None:
+        for band in INDICES_TO_USE:
+            for feat in features:
+                feature_names.append(band.name + "_" + feat)
+    return feature_names
+
 
 if __name__ == "__main__":
     home = Path.home()
@@ -415,6 +447,7 @@ if __name__ == "__main__":
     trainer = Pretrainer(
         n_components       = N_COMPONENTS,
         covariance_type    = COVARIANCE,
+        pca_variance       = PCA_VARIANCE,
         band_indices       = BANDS_TO_USE,
         vegetation_indices = INDICES_TO_USE,
         rectangle          = False,
@@ -422,10 +455,19 @@ if __name__ == "__main__":
 
     for cfg in configs:
         trainer.train(
-            ortho_path         = cfg.ortho_path,
-            shapefile_path     = cfg.shapefile_path,
-            limit              = 0.8,
-            select_components  = False,  # set True on first run to pick best n
+            ortho_path        = cfg.ortho_path,
+            shapefile_path    = cfg.shapefile_path,
+            limit             = 0.8,
+            select_components = False,  # set True on first run to pick best n
         )
 
     trainer.dump(OUTPUT_PATH / "gmm_model.joblib")
+
+    feature_names = get_feature_names()
+
+    from run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
+    plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
+                        feature_names=feature_names, max_features=10)
+    plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
+                        feature_names=feature_names)
+    plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")

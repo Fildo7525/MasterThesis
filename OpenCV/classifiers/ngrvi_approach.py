@@ -21,7 +21,11 @@ from features.features import FeatureExtractor
 from AI.yolo_qgis_converter import YOLOShapefileConverter
 from metrics import Metrics, ConfusionMatrix
 
-DBG = True
+from isolation_forest_pretrain import IsolationForestDetector
+from gmm_pretrain import GMMDetector
+from svm_pretrain import SVMDetector
+
+DBG = False
 
 MIN_AREA_PX = 160
 MAX_AREA_PX = 16_200
@@ -394,7 +398,7 @@ class NgrviApproach:
                 "model":              self._model_name,
                 "bands":              [band.name for band in self.band_indices] if self.band_indices else "None",
                 "vegetation_indices": veg_names,
-                "model_path":         str(self._model_path),
+                "model_path":         str(self._model_path)
             }, f, indent=4)
 
         # ── Phase 1: split orthomosaic into tiles on disk (no processing yet) ─
@@ -462,6 +466,12 @@ class NgrviApproach:
         cm.plot(hold=True, save = metrics_path / "confusion_matrix.png")
         cm.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
 
+        # ── Phase 5: cleanup ──────────────────────────────────────────
+        print(f"\n--Cleanup\n")
+        print(f"Removing recursively directory: {tiles_dir}")
+        shutil.rmtree(tiles_dir)
+
+
 
 if __name__ == "__main__":
 
@@ -474,24 +484,31 @@ if __name__ == "__main__":
     # model_path = base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"   # OneClassSVM
     # model_path = base_dir / "OpenCV/iforest_output_rgb/iforest_model.joblib"           # IsolationForest
     # model_path = base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib"                   # GMM
-    model_path = base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
-
-    appr = NgrviApproach(model_path)
-
-    orthomosaics: list[ApproachArgs] = [
-        ApproachArgs(
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
-            orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-        ),
-        ApproachArgs(
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-            orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        ),
-        ApproachArgs(
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
-            orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-        ),
+    model_paths = [
+        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
+        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
+        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
     ]
 
-    for args in orthomosaics:
-        appr.process_orthomosaic(args)
+
+    for model_path in model_paths:
+        appr = NgrviApproach(model_path)
+
+        orthomosaics: list[ApproachArgs] = [
+            ApproachArgs(
+                ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+                orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+            ),
+            ApproachArgs(
+                ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+                orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+            ),
+            ApproachArgs(
+                ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+                orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
+            ),
+        ]
+
+        for args in orthomosaics:
+            appr.process_orthomosaic(args)
+
