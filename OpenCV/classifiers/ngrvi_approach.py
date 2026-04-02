@@ -112,11 +112,16 @@ class NgrviApproach:
         self.output = Path(output)
         if self.output.exists() and rename_existing:
             existing_dirs = self.output.parent.glob(f"{self.output.stem}_*")
-            nums = sorted(
-                int(p.stem.split("_")[-1])
-                for p in existing_dirs
-                if p.is_dir() and p.stem.startswith(self.output.stem)
-            )
+            nums = []
+            for p in existing_dirs:
+                try:
+                    if p.is_dir() and p.stem.startswith(self.output.stem):
+                        pth = int(p.stem.split("_")[-1])
+                        nums.append(pth)
+                except:
+                    continue
+
+            nums = sorted(nums)
             max_num               = nums[-1] if nums else 0
             new_name_for_existing = self.output.parent / f"{self.output.stem}_{max_num + 1:04}"
 
@@ -454,7 +459,7 @@ class NgrviApproach:
         iou_threshold = 0.1
         print(f"\n-- Phase 4: computing metrics (IoU >= {iou_threshold})")
         metrics = Metrics()
-        cm: ConfusionMatrix = metrics.compute_from_shapefiles(
+        self.cm: ConfusionMatrix = metrics.compute_from_shapefiles(
             gt_shp            = args.ground_truth_shp,
             pred_shp          = pred_shp,
             reference_tif_dir = tiles_dir,
@@ -462,9 +467,9 @@ class NgrviApproach:
         )
         metrics_path = self.output / "metrics"
         metrics_path.mkdir(parents=True, exist_ok=True)
-        cm.print(save = metrics_path / "confusion_matrix.txt")
-        cm.plot(hold=True, save = metrics_path / "confusion_matrix.png")
-        cm.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
+        self.cm.print(save = metrics_path / "confusion_matrix.txt")
+        self.cm.plot(hold=True, save = metrics_path / "confusion_matrix.png")
+        self.cm.plot(hold=True, normalised=True, save = metrics_path / "confusion_matrix_normalised.png")
 
         # ── Phase 5: cleanup ──────────────────────────────────────────
         print(f"\n--Cleanup\n")
@@ -485,9 +490,9 @@ if __name__ == "__main__":
     # model_path = base_dir / "OpenCV/iforest_output_rgb/iforest_model.joblib"           # IsolationForest
     # model_path = base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib"                   # GMM
     model_paths = [
-        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
-        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
-        base_dir / "OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib",
+        # base_dir / "OpenCV/svm_output_rgb/svm_model.joblib",
+        base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib",
+        base_dir / "OpenCV/ifo_output_rgb/ifo_model.joblib",
     ]
 
 
@@ -509,6 +514,25 @@ if __name__ == "__main__":
             ),
         ]
 
+        outputs = {
+            "TP": 0,
+            "FP": 0,
+            "FN": 0,
+            "TN": 0,
+        }
+
         for args in orthomosaics:
             appr.process_orthomosaic(args)
+            results = appr.cm
+            outputs["FN"] += results.fn
+            outputs["FP"] += results.fp
+            outputs["TP"] += results.tp
+            outputs["TN"] += results.tn
+
+        cm = ConfusionMatrix.fromDict(outputs)
+        print("\n========================\nAll orthomosaics\n========================\n")
+        cm.print(model_path.parent / "confusion_matrix_all.txt")
+        cm.plot(model_path.parent / "confusion_matrix_all.png")
+        cm.plot(model_path.parent / "confusion_matrix_normalised_all.png", normalised=True)
+        print("\n========================")
 
