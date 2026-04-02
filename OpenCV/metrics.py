@@ -65,6 +65,18 @@ class ConfusionMatrix:
         return results
 
 
+    @classmethod
+    def fromDict(cls, dict):
+        results = cls()
+
+        results.tp = int(dict["TP"])
+        results.fp = int(dict["FP"])
+        results.fn = int(dict["FN"])
+        results.tn = int(dict["TN"])
+
+        return results
+
+
     def print(self, save: Path | str = ""):
         print("\n" + "="*50)
         print("CONFUSION MATRIX (Object Detection)")
@@ -81,10 +93,10 @@ class ConfusionMatrix:
         accuracy = (self.tp + self.tn) / (self.tp + self.tn + self.fp + self.fn) if (self.tp + self.tn + self.fp + self.fn) > 0 else 0
 
         print(f"\nMetrics:")
+        print(f"  Accuracy:  {accuracy:.4f}")
+        print(f"  F1-Score:  {f1:.4f}")
         print(f"  Precision: {precision:.4f}")
         print(f"  Recall:    {recall:.4f}")
-        print(f"  F1-Score:  {f1:.4f}")
-        print(f"  Accuracy:  {accuracy:.4f}")
         print("="*50 + "\n")
 
         if save != "":
@@ -97,10 +109,10 @@ class ConfusionMatrix:
                 f.write(f"FP: {self.fp}\n")
                 f.write(f"FN: {self.fn}\n")
                 f.write(f"TN: {self.tn}\n")
+                f.write(f"Accuracy {accuracy:.4f}\n")
+                f.write(f"F1-Score {f1:.4f}\n")
                 f.write(f"Precision {precision:.4f}\n")
                 f.write(f"Recall {recall:.4f}\n")
-                f.write(f"F1-Score {f1:.4f}\n")
-                f.write(f"Accuracy {accuracy:.4f}\n")
 
 
     def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = True):
@@ -404,9 +416,16 @@ if __name__ == "__main__":
     # results = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir)
 
     home = Path.home()
-    results = ConfusionMatrix.fromFile(home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2_IF_NRN/metrics/confusion_matrix.txt")
+    paths = [
+        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/big",
+        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/mid",
+        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/small",
+    ]
 
-    results.print()
-    results.plot(hold=True, save = home / "delete/confusion_matrix.png")
-    results.plot(normalised=True, save = home / "delete/confusion_matrix_normalised.png")
+    for pth in paths:
+        results = ConfusionMatrix.fromFile(pth / "confusion_matrix.txt")
+
+        results.print()
+        results.plot(hold=True, save = pth / "confusion_matrix.png")
+        results.plot(normalised=True, save = pth / "confusion_matrix_normalised.png")
 
