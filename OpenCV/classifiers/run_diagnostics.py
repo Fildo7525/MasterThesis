@@ -37,6 +37,7 @@ import matplotlib.patches as mpatches
 from matplotlib.colors import ListedColormap
 from pathlib import Path
 
+FONT_SIZE = 16
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -107,11 +108,11 @@ def plot_feature_matrix(pretrainer, out_path: Path,
     names      = (feature_names or [f"F{i}" for i in range(X.shape[1])])[:n_features]
 
     INLIER_COLOR  = "#4C72B0"
-    OUTLIER_COLOR = "#DD8452"
+    OUTLIER_COLOR = "#DD2152"
 
     fig, axes = plt.subplots(n_features, n_features,
                               figsize=(3 * n_features, 3 * n_features))
-    fig.suptitle("Feature matrix (original space)", fontsize=14, y=1.01)
+    fig.suptitle("Feature matrix (original space)", fontsize=FONT_SIZE*2+1, y=1.01)
 
     for i in range(n_features):
         for j in range(n_features):
@@ -129,16 +130,16 @@ def plot_feature_matrix(pretrainer, out_path: Path,
                                s=4, alpha=0.8, color=OUTLIER_COLOR, label="Outliers")
 
             if i == n_features - 1:
-                ax.set_xlabel(names[j], fontsize=7)
+                ax.set_xlabel(names[j], fontsize=FONT_SIZE*1.4)
             if j == 0:
-                ax.set_ylabel(names[i], fontsize=7)
+                ax.set_ylabel(names[i], fontsize=FONT_SIZE*1.4)
             ax.tick_params(axis="both", which="both", labelsize=5)
 
     handles = [
         mpatches.Patch(color=INLIER_COLOR,  label="Inliers"),
         mpatches.Patch(color=OUTLIER_COLOR, label="Outliers"),
     ]
-    fig.legend(handles=handles, loc="upper right", fontsize=9)
+    fig.legend(handles=handles, loc="upper right", fontsize=FONT_SIZE*1.8)
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=120, bbox_inches="tight")
@@ -189,7 +190,7 @@ def plot_pca_importance(pretrainer, out_path: Path,
 
     # ── Left: scree ─────────────────────────────────────────────────────────
     fig, (ax_scree, ax_load) = plt.subplots(1, 2, figsize=(14, 6))
-    fig.suptitle("PCA component analysis", fontsize=14)
+    fig.suptitle("PCA component analysis", fontsize=FONT_SIZE+1)
 
     pc_labels = [f"PC{i+1}" for i in range(n_pcs)]
     cumvar    = np.cumsum(evr)
@@ -200,18 +201,18 @@ def plot_pca_importance(pretrainer, out_path: Path,
                   linewidth=2, markersize=5, zorder=3, label="Cumulative")
     ax_scree.axhline(95, color="grey", linestyle="--", linewidth=1, label="95 % threshold")
 
-    ax_scree.set_xlabel("Principal component")
-    ax_scree.set_ylabel("Explained variance (%)")
-    ax_scree.set_title("Scree chart")
+    ax_scree.set_xlabel("Principal component", fontsize=FONT_SIZE)
+    ax_scree.set_ylabel("Explained variance (%)", fontsize=FONT_SIZE)
+    ax_scree.set_title("Scree chart", fontsize=FONT_SIZE+1)
     ax_scree.set_ylim(0, 105)
-    ax_scree.legend(fontsize=8)
+    ax_scree.legend(fontsize=FONT_SIZE-2)
     ax_scree.tick_params(axis="x", rotation=45)
 
     # Annotate each bar with its percentage
     for bar, val in zip(bars, evr):
         ax_scree.text(bar.get_x() + bar.get_width() / 2,
                       bar.get_height() + 0.8,
-                      f"{val*100:.1f}%", ha="center", va="bottom", fontsize=7)
+                      f"{val*100:.1f}%", ha="center", va="bottom", fontsize=FONT_SIZE-1)
 
     # ── Right: loading chart ─────────────────────────────────────────────────
     n_pcs_plot = min(max_pcs_in_loading, n_pcs)
@@ -235,14 +236,15 @@ def plot_pca_importance(pretrainer, out_path: Path,
         widths = top_loadings[pc_i]
         ax_load.barh(y_pos, widths, left=lefts, height=0.6,
                      color=pc_colors[pc_i], alpha=0.85, label=f"PC{pc_i+1}")
+        ax_load.tick_params(labelsize=FONT_SIZE-1)
         lefts += widths
 
     ax_load.set_yticks(y_pos)
-    ax_load.set_yticklabels(top_names, fontsize=8)
+    ax_load.set_yticklabels(top_names, fontsize=FONT_SIZE)
     ax_load.invert_yaxis()   # most important at the top
-    ax_load.set_xlabel("Summed |loading| across selected PCs")
-    ax_load.set_title(f"Top-{max_loadings} feature loadings (first {n_pcs_plot} PCs)")
-    ax_load.legend(fontsize=8, loc="lower right")
+    ax_load.set_xlabel("Summed |loading| across selected PCs", fontsize=FONT_SIZE-1)
+    ax_load.set_title(f"Top-{max_loadings} feature loadings (first {n_pcs_plot} PCs)", fontsize=FONT_SIZE+1)
+    ax_load.legend(fontsize=FONT_SIZE-1, loc="lower right")
     ax_load.axvline(0, color="black", linewidth=0.8)
 
     plt.tight_layout()
@@ -326,7 +328,9 @@ def plot_pca_scatter(pretrainer, out_path: Path, resolution: int = 300):
     # Score landscape as filled contour
     cf = ax.contourf(xx, yy, grid_scores, levels=30,
                      cmap="RdYlGn", alpha=0.45)
-    plt.colorbar(cf, ax=ax, label="Anomaly score (higher = more normal)")
+
+    cb = plt.colorbar(cf, ax=ax)
+    cb.set_label(label="Anomaly score (higher = more normal)",size=FONT_SIZE-1)
 
     # Decision boundary
     ax.contour(xx, yy, grid_scores, levels=[threshold],
@@ -340,17 +344,14 @@ def plot_pca_scatter(pretrainer, out_path: Path, resolution: int = 300):
                    alpha=0.9, marker="x", label=f"Outliers ({outliers.sum()})", zorder=4)
 
     evr = pca.explained_variance_ratio_
-    ax.set_xlabel(f"PC1  ({evr[0]*100:.1f} % variance)", fontsize=11)
-    ax.set_ylabel(f"PC2  ({evr[1]*100:.1f} % variance)", fontsize=11)
+    ax.set_xlabel(f"PC1  ({evr[0]*100:.1f} % variance)", fontsize=FONT_SIZE)
+    ax.set_ylabel(f"PC2  ({evr[1]*100:.1f} % variance)", fontsize=FONT_SIZE)
     title = f"PC1 vs PC2 — {type(model).__name__} decision boundary\n"
     if threshold != 0.0:
         title += f"(dashed line = threshold {threshold:.3f})"
 
-    ax.set_title(
-        title,
-        fontsize=11,
-    )
-    ax.legend(fontsize=9)
+    ax.set_title(title, fontsize=FONT_SIZE+1)
+    ax.legend(fontsize=FONT_SIZE-1)
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
