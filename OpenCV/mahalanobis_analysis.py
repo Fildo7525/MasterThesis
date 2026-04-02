@@ -2,7 +2,7 @@
 mahalanobis_analysis.py
 
 1. Extract features via Pretrainer
-2. Standardise + PCA (optional whitening)
+2. Standardise + PCA (optional blackning)
 3. Compute mean vector and covariance matrix of the training distribution
 4. Compute Mahalanobis distance for every training sample
 5. Find the threshold that accepts 95 % (and 100 %) of training samples
@@ -46,30 +46,30 @@ HOME = Path.home()
 CONFIGS = [
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_best.shp",
-        limit = 1,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+        limit = 0.8,
     ),
     dict(
         ortho  = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_best.shp",
-        limit = 1,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        limit = 0.8,
     ),
     dict(
         ortho = HOME / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_best.shp",
-        limit = 1,
+        shapes = HOME / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+        limit = 0.8,
     )
 ]
 
 RANDOM_SEED      = 42
-OUT_DIR          = Path("./mahal_output_INDICES_v3")
+OUT_DIR          = Path("./mahal_output_INDICES_v5")
 NU               = 0.05
 ACCEPT_FRACTIONS = [0.95, 0.975, 0.99, 1.00]   # threshold percentiles to compute & plot
 USE_PCA          = True            # reduce to PCA space before computing cov
 PCA_VARIANCE     = 0.99            # keep enough PCs to explain this fraction
 USE_LEDOIT_WOLF  = True            # robust covariance estimator (better for small N)
-BANDS_TO_USE     = [ Bands.EXTEND_RED, Bands.EXTEND_GREEN, Bands.NIR ]            # None means all otherwise a list of Bands should be supplied.
-INDICES_TO_USE   = [ Indices.NGRDI, Indices.NGRVI, Indices.RVI ]            # None means all otherwise a list of Indices should be supplied.
+BANDS_TO_USE     = [ Bands.RED, Bands.GREEN, Bands.BLUE ]            # None means all otherwise a list of Bands should be supplied.
+INDICES_TO_USE   = None # [ Indices.NGRDI, ]            # None means all otherwise a list of Indices should be supplied.
 # ──────────────────────────────────────────────────────────────
 
 np.random.seed(RANDOM_SEED)
@@ -111,8 +111,8 @@ def mahalanobis_distance(X: np.ndarray,
 
 # ── plotting helpers ──────────────────────────────────────────
 
-BG, GRID = "#0d1117", "#1e2530"
-ACC, AMB, RED, GRN = "#4fc3f7", "#ffca28", "#ef5350", "#69f0ae"
+BG, GRID = "#ffffff", "#5c5c5c"
+ACC, AMB, RED, GRN = "#0986be", "#997300", "#ef5350", "#69f0ae"
 PRP = "#ab47bc"
 ORG = "#ff7043"
 
@@ -122,11 +122,11 @@ THRESH_LABELS = {0.95: "95 %", 0.975: "97.5 %", 0.99: "99 %", 1.00: "100 %"}
 
 def style_ax(ax):
     ax.set_facecolor(BG)
-    ax.tick_params(colors="white", labelsize=9)
+    ax.tick_params(colors="black", labelsize=9)
     ax.spines[:].set_color(GRID)
-    ax.xaxis.label.set_color("white")
-    ax.yaxis.label.set_color("white")
-    ax.title.set_color("white")
+    ax.xaxis.label.set_color("black")
+    ax.yaxis.label.set_color("black")
+    ax.title.set_color("black")
 
 
 def plot_distance_distribution(distances: np.ndarray,
@@ -169,7 +169,7 @@ def plot_distance_distribution(distances: np.ndarray,
     ax.set_xlabel("Mahalanobis Distance")
     ax.set_ylabel("Density")
     ax.set_title("Training-Set Mahalanobis Distance Distribution")
-    ax.legend(fontsize=9, labelcolor="white", facecolor=GRID, edgecolor="none")
+    ax.legend(fontsize=9, labelcolor="black", facecolor=GRID, edgecolor="none")
     ax.grid(color=GRID, zorder=0, alpha=0.6)
 
     plt.tight_layout()
@@ -199,7 +199,7 @@ def plot_qq(distances: np.ndarray, n_dims: int, out_path: Path) -> None:
     ax.set_xlabel(f"Theoretical Chi(df={n_dims}) quantiles")
     ax.set_ylabel("Empirical Mahalanobis distance quantiles")
     ax.set_title("Chi QQ-Plot\n(deviation from line = non-Gaussianity)")
-    ax.legend(fontsize=9, labelcolor="white", facecolor=GRID, edgecolor="none")
+    ax.legend(fontsize=9, labelcolor="black", facecolor=GRID, edgecolor="none")
     ax.grid(color=GRID, zorder=0, alpha=0.6)
 
     plt.tight_layout()
@@ -227,8 +227,8 @@ def plot_pca_scatter(X_pca: np.ndarray,
     sc = ax.scatter(x, y, c=distances, cmap="plasma",
                     s=40, alpha=0.85, edgecolor="none", zorder=3)
     cbar = fig.colorbar(sc, ax=ax, shrink=0.75, pad=0.02)
-    cbar.set_label("Mahalanobis Distance", color="white")
-    cbar.ax.yaxis.set_tick_params(color="white", labelsize=8, labelcolor="white")
+    cbar.set_label("Mahalanobis Distance", color="black")
+    cbar.ax.yaxis.set_tick_params(color="black", labelsize=8, labelcolor="black")
 
     # draw ellipses at each threshold (based on std of PC1 & PC2)
     theta  = np.linspace(0, 2 * np.pi, 300)
@@ -248,7 +248,7 @@ def plot_pca_scatter(X_pca: np.ndarray,
     ax.set_xlabel(f"PC1  ({ev[0]:.1f} %)", fontsize=10)
     ax.set_ylabel(f"PC2  ({ev[1]:.1f} %)", fontsize=10)
     ax.set_title("PCA Scatter — coloured by Mahalanobis Distance", fontsize=12)
-    ax.legend(fontsize=9, labelcolor="white", facecolor=GRID, edgecolor="none")
+    ax.legend(fontsize=9, labelcolor="black", facecolor=GRID, edgecolor="none")
     ax.grid(color=GRID, zorder=0, alpha=0.5)
 
     plt.tight_layout()
@@ -280,7 +280,7 @@ def plot_cumulative_acceptance(distances: np.ndarray,
     ax.set_ylabel("% of Training Samples Accepted")
     ax.set_title("Cumulative Acceptance — choose your threshold")
     ax.set_ylim(0, 105)
-    ax.legend(fontsize=9, labelcolor="white", facecolor=GRID, edgecolor="none")
+    ax.legend(fontsize=9, labelcolor="black", facecolor=GRID, edgecolor="none")
     ax.grid(color=GRID, zorder=0, alpha=0.6)
 
     plt.tight_layout()
@@ -398,8 +398,8 @@ def main():
         },
         "thresholds": {f"{k*100:.2f}pct": v for k, v in thresholds.items()},
         "chi_theoretical_95": float(stats.chi.ppf(0.95, df=n_dims)),
-        "bands": BANDS_TO_USE,
-        "indices": INDICES_TO_USE
+        "bands": BANDS_TO_USE or "None",
+        "indices": INDICES_TO_USE or "None",
     }
     with open(OUT_DIR / "thresholds.json", "w") as f:
         json.dump(meta, f, indent=2)
