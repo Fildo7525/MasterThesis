@@ -339,7 +339,7 @@ class Metrics:
                                 reference_tif_dir: Path | str,
                                 *,
                                 iou_threshold: float=0.5,
-                                cleanup: bool = False):
+                                cleanup: bool = True):
         """
         Compute confusion matrix directly from shapefiles by converting them to YOLO format.
         This method will convert the provided ground truth and predicted shapefiles into YOLO annotation format,

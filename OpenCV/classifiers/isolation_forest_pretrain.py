@@ -60,17 +60,17 @@ from features.features import FeatureExtractor
 
 N_ESTIMATORS  = 200     # more trees → more stable, slower training
 MAX_SAMPLES   = "auto"  # "auto" = min(256, n_samples)
-CONTAMINATION = 0.01    # expected fraction of outliers in training data
+CONTAMINATION = 0.000000001    # expected fraction of outliers in training data
 RANDOM_STATE  = 42
 
 PCA_VARIANCE  = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/iforest_output_nrn"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/iforest_output_nrn_rgb"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]
+BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
 INDICES_TO_USE = [Indices.NGRDI]
 
 
@@ -307,15 +307,36 @@ class Pretrainer:
             self.band_indices, self.vegetation_indices,
             limit=limit,
         )
-        self.last_X = X
+        # Accumulate across multiple train() calls
+        if self.last_X is None:
+            self.last_X = X
+        else:
+            self.last_X = np.vstack([self.last_X, X])
         print(f"   Feature matrix: {X.shape[0]} × {X.shape[1]}")
 
-        print("\n── Fitting Isolation Forest (with PCA) ──────────────────")
-        self.pipeline.fit(X)
+        # print("\n── Fitting Isolation Forest (with PCA) ──────────────────")
+        # self.pipeline.fit(X)
 
-        preds = self.pipeline.predict(X)
-        n_in  = (preds == 1).sum()
-        print(f"   Training support: {n_in}/{len(preds)} classified as inlier")
+        # preds = self.pipeline.predict(X)
+        # n_in  = (preds == 1).sum()
+        # print(f"   Training support: {n_in}/{len(preds)} classified as inlier")
+
+
+    def fit(self):
+        """
+        Fit the SVMDetector on the full accumulated feature matrix.
+        Call this once after all train() calls.
+        """
+        if self.last_X is None:
+            raise RuntimeError("No data accumulated. Call train() at least once first.")
+
+        print("\n── Fitting Isolation Forest (with PCA) ─────────────────────")
+        print(f"   Total training samples: {self.last_X.shape[0]} × {self.last_X.shape[1]}")
+        self.pipeline.fit(self.last_X)
+
+        preds = self.pipeline.predict(self.last_X)
+        print(f"   Training support: {(preds == 1).sum()}/{len(preds)} in-group")
+
 
     def dump(self, out_path: Path):
         meta = {
@@ -374,6 +395,7 @@ if __name__ == "__main__":
     for cfg in configs:
         trainer.train(ortho_path=cfg.ortho_path, shapefile_path=cfg.shapefile_path, limit=0.8)
 
+    trainer.fit()
     trainer.dump(OUTPUT_PATH / "iforest_model.joblib")
 
     feature_names = get_feature_names()
@@ -382,5 +404,5 @@ if __name__ == "__main__":
     plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
                         feature_names=feature_names, max_features=10)
     plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
-                        feature_names=feature_names)
+                        feature_names=feature_names, pca_variance=PCA_VARIANCE)
     plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")

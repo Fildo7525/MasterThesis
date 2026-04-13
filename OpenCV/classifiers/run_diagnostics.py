@@ -153,7 +153,8 @@ def plot_feature_matrix(pretrainer, out_path: Path,
 
 def plot_pca_importance(pretrainer, out_path: Path,
                         feature_names=None, max_loadings: int = 10,
-                        max_pcs_in_loading: int = 5):
+                        max_pcs_in_loading: int = 5,
+                        pca_variance:float = 95):
     """
     Two-panel PCA importance figure.
 
@@ -199,7 +200,7 @@ def plot_pca_importance(pretrainer, out_path: Path,
                          zorder=2, label="Explained variance")
     ax_scree.plot(pc_labels, cumvar * 100, color="#DD8452", marker="o",
                   linewidth=2, markersize=5, zorder=3, label="Cumulative")
-    ax_scree.axhline(95, color="grey", linestyle="--", linewidth=1, label="95 % threshold")
+    ax_scree.axhline(pca_variance*100, color="grey", linestyle="--", linewidth=1, label="95 % threshold")
 
     ax_scree.set_xlabel("Principal component", fontsize=FONT_SIZE)
     ax_scree.set_ylabel("Explained variance (%)", fontsize=FONT_SIZE)

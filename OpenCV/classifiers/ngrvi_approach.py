@@ -27,11 +27,11 @@ from svm_pretrain import SVMDetector
 
 DBG = False
 
-MIN_AREA_PX = 160
-MAX_AREA_PX = 16_200
+MIN_AREA_PX = 350
+MAX_AREA_PX = 16300
 
-MIN_AREA_M2 = 0.004
-MAX_AREA_M2 = 0.404457
+MIN_AREA_M2 = 0.009
+MAX_AREA_M2 = 0.406837
 
 N_WORKERS = max(1, (os.cpu_count() or 1) // 2)
 

@@ -61,10 +61,10 @@ PCA_VARIANCE = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]
+BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
 INDICES_TO_USE = [Indices.NGRDI]
 
 
@@ -410,5 +410,5 @@ if __name__ == "__main__":
     plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
                         feature_names=feature_names, max_features=10)
     plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
-                        feature_names=feature_names)
+                        feature_names=feature_names, pca_variance=PCA_VARIANCE)
     plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")
