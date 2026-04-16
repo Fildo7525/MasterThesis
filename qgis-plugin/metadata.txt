@@ -1,0 +1,10 @@
+[general]
+name=Volunteer Potato Detector
+description=Detect leftover potato plants on fields.
+about=This plugins utilises classical computer vision and object detection using yolo26 to detect the potatoe plants.
+version=1.0
+qgisMinimumVersion=3.0
+author=Filip Lobpreis and Samuel Palenik
+email=filob23@student.sdu.dk,sapal24@student.sdu.dk
+repository=URL to the code repository
+supportsQt6=True
