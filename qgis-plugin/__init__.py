@@ -4,6 +4,7 @@
 # Licensed under the terms of GNU GPL 2
 #-----------------------------------------------------------
 
+from PyQt5.QtWidgets import QButtonGroup, QRadioButton
 from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
@@ -42,7 +43,6 @@ class InputDialog(QDialog):
         self.use_gt_checkbox = QCheckBox("Use Ground Truth", self)
         layout.addWidget(self.use_gt_checkbox)
 
-
         self.vector_box = QgsMapLayerComboBox(self)
         self.vector_box.setFilters(QgsMapLayerProxyModel.VectorLayer)
         layout.addWidget(self.vector_box)
@@ -53,6 +53,30 @@ class InputDialog(QDialog):
         # Initial state of vector dropdown menu
         self.use_gt_checkbox.setChecked(False)
         self.vector_box.setDisabled(True)
+
+        # Choose approach with which to find the potatoes.
+        self.radio_button_group = QButtonGroup(self)
+
+        self.cv_approach = QRadioButton("Classical computer vision")
+        self.ai_approach = QRadioButton("Object detection via AI model")
+        self.merge_approach = QRadioButton("Merged approach")
+
+        self.radio_button_group.addButton(self.cv_approach)
+        self.radio_button_group.addButton(self.ai_approach)
+        self.radio_button_group.addButton(self.merge_approach)
+        self.merge_approach.setChecked(True)
+
+        self.radio_button_group.buttonPressed.connect(self.on_radio_change)
+
+        self.advanced_setting = QLabel("What approach to choose", self)
+        layout.addWidget(self.advanced_setting)
+
+        layout.addWidget(self.cv_approach)
+        layout.addWidget(self.ai_approach)
+        layout.addWidget(self.merge_approach)
+
+        self.approach_label = QLabel("Selected:")
+        layout.addWidget(self.approach_label)
 
         # OK / Cancel
         buttons = QDialogButtonBox(
@@ -66,6 +90,7 @@ class InputDialog(QDialog):
 
         self.setLayout(layout)
 
+
     def get_inputs(self):
         raster = self.raster_box.currentLayer()
 
@@ -74,7 +99,13 @@ class InputDialog(QDialog):
         else:
             vector = None
 
-        return raster, vector
+        approach = self.radio_button_group.checkedButton().text()
+        return raster, vector, approach
+
+
+    def on_radio_change(self, button: QRadioButton):
+        button.setChecked(True)
+        self.approach_label.setText(f"Selected: {button.text()}")
 
 
 class MinimalPlugin:
@@ -97,7 +128,7 @@ class MinimalPlugin:
 
         if dlg.exec_():
 
-            raster, vector = dlg.get_inputs()
+            raster, vector, approach = dlg.get_inputs()
 
             if raster is None:
                 QMessageBox.warning(
@@ -107,11 +138,13 @@ class MinimalPlugin:
                 )
                 return
 
-            msg = f"Raster: {raster.name()}\n"
+            msg = f"Raster: {raster.source()}\n"
 
             if vector:
-                msg += f"Shapefile: {vector.name()}"
+                msg += f"Shapefile: {vector.source()}\n"
             else:
-                msg += "No shapefile selected"
+                msg += "No shapefile selected\n"
+
+            msg += f"Approach {approach}"
 
             QMessageBox.information(None, "Inputs received", msg)
