@@ -140,3 +140,4 @@ output_*
 /OpenCV/gmm_output_rgb/picked_polygons_20250827_Bjørnkjærvej_TestFlight_2_mid_limit_0.8.dbf
 /OpenCV/gmm_output_rgb/picked_polygons_20250827_Bjørnkjærvej_TestFlight_2_small_limit_0.8.dbf
 /OpenCV/svm_output_rgb_bigger
+/OpenCV/svm_output_nrn_ex
