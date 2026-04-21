@@ -22,6 +22,8 @@ from .metrics import Metrics, ConfusionMatrix
 
 from .svm_pretrain import SVMDetector
 
+from qgis.core import QgsMessageLog
+
 DBG = False
 
 MIN_AREA_PX = 350
@@ -173,7 +175,7 @@ class NgrviApproach:
         """
         if image.shape[:2] != mask.shape[:2]:
             if DBG:
-                print(f"Warning: Image and mask size mismatch in tile_{row}_{column}. "
+                QgsMessageLog.logMessage(f"Warning: Image and mask size mismatch in tile_{row}_{column}. "
                       f"Image shape: {image.shape}, Mask shape: {mask.shape}. Skipping.")
             return []
 
@@ -181,7 +183,7 @@ class NgrviApproach:
         num_labels, labels, stats, _ = cv.connectedComponentsWithStats(mask_bin)
 
         if DBG:
-            print(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
+            QgsMessageLog.logMessage(f"Connected components found in tile_{row}_{column}: {num_labels - 1} (excluding background)")
 
         img_h, img_w = image.shape[:2]
         out          = []
@@ -314,13 +316,13 @@ class NgrviApproach:
         bands = src.read(window=window).astype(np.float32) / scale   # (C, H, W)
 
         if DBG:
-            print(f"Shape: {bands.shape}, dtype: {bands.dtype}, min: {bands.min():.4f}, max: {bands.max():.4f}")
+            QgsMessageLog.logMessage(f"Shape: {bands.shape}, dtype: {bands.dtype}, min: {bands.min():.4f}, max: {bands.max():.4f}")
 
         # ── 1. Compute NGRVI mask ONCE for the whole tile ────────────────────
         ngrvi_mask, _ = self.create_ngrvi_mask(bands)
 
         if DBG:
-            print(f"Extracting segmented objects from tile_{row}_{column}...")
+            QgsMessageLog.logMessage(f"Extracting segmented objects from tile_{row}_{column}...")
 
         # ── 2. Find connected components ─────────────────────────────────────
         results = self.extract_segmented_objects(
@@ -334,7 +336,7 @@ class NgrviApproach:
 
         if not results:
             if DBG:
-                print(f"  tile_{row}_{column}: no segments passed area filter — skipping")
+                QgsMessageLog.logMessage(f"  tile_{row}_{column}: no segments passed area filter — skipping")
             return
 
         # ── 3. Extract feature vectors (crops, not full-tile) ─────────────────
@@ -349,7 +351,7 @@ class NgrviApproach:
 
         if not valid_vecs:
             if DBG:
-                print(f"  tile_{row}_{column}: all segments too small after NGRVI masking")
+                QgsMessageLog.logMessage(f"  tile_{row}_{column}: all segments too small after NGRVI masking")
             return
 
         # ── 4. Score ALL segments in one batch classifier call ───────────────
@@ -370,10 +372,10 @@ class NgrviApproach:
                 x1, y1, x2, y2, x3, y3, x4, y4 = segm
                 label_lines.append(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
                 if DBG:
-                    print(f"  [{self._model_name}] tile_{row}_{column}:  IN-GROUP  ✓  score={score:+.4f}")
+                    QgsMessageLog.logMessage(f"  [{self._model_name}] tile_{row}_{column}:  IN-GROUP  ✓  score={score:+.4f}")
             else:
                 if DBG:
-                    print(f"  [{self._model_name}] tile_{row}_{column}: OUT-GROUP  ✗  score={score:+.4f}")
+                    QgsMessageLog.logMessage(f"  [{self._model_name}] tile_{row}_{column}: OUT-GROUP  ✗  score={score:+.4f}")
 
         if label_lines:
             label_path = self.labels_dir / f"tile_{row}_{column}.txt"
@@ -381,7 +383,7 @@ class NgrviApproach:
                 f.writelines(label_lines)
 
         if DBG:
-            print(f"  tile_{row}_{column}: {n_inlier}/{len(valid_vecs)} segments accepted by {self._model_name}")
+            QgsMessageLog.logMessage(f"  tile_{row}_{column}: {n_inlier}/{len(valid_vecs)} segments accepted by {self._model_name}")
 
 
     def process_orthomosaic(self, args: ApproachArgs, cleanup: bool = True):
@@ -404,7 +406,7 @@ class NgrviApproach:
             }, f, indent=4)
 
         # ── Phase 1: split orthomosaic into tiles on disk (no processing yet) ─
-        print("-- Phase 1: splitting orthomosaic into tiles")
+        QgsMessageLog.logMessage("-- Phase 1: splitting orthomosaic into tiles")
         split_geotiff(
             input_tif  = args.orthomosaic_path,
             output_dir = tiles_dir,
@@ -417,7 +419,7 @@ class NgrviApproach:
         if not tile_paths:
             raise RuntimeError(f"No tiles found in {tiles_dir}")
 
-        print(f"\n-- Phase 2: processing {len(tile_paths)} tiles on {N_WORKERS} worker processes")
+        QgsMessageLog.logMessage(f"\n-- Phase 2: processing {len(tile_paths)} tiles on {N_WORKERS} worker processes")
 
         tasks = [
             _TileTask(
@@ -436,10 +438,10 @@ class NgrviApproach:
                 desc="Tiles",
             ):
                 if DBG and result:
-                    print(result)
+                    QgsMessageLog.logMessage(result)
 
         # ── Phase 3: convert labels to shapefile ──────────────────────────────
-        print("\n-- Phase 3: converting labels to shapefile")
+        QgsMessageLog.logMessage("\n-- Phase 3: converting labels to shapefile")
         converter = YOLOShapefileConverter()
         pred_shp  = self.output / "labels_shapefile.shp"
         converter.labels_to_shapefile(
@@ -449,13 +451,13 @@ class NgrviApproach:
             min_area          = MIN_AREA_M2,
             max_area          = MAX_AREA_M2,
         )
-        print("Labels dir :", labels_dir.absolute())
-        print("Pred shp   :", pred_shp.absolute())
+        QgsMessageLog.logMessage(f"Labels dir :{labels_dir.absolute()}")
+        QgsMessageLog.logMessage(f"Pred shp   :{pred_shp.absolute()}")
 
         if args.ground_truth_shp is not None:
             # ── Phase 4: compute metrics ──────────────────────────────────────────
             iou_threshold = 0.1
-            print(f"\n-- Phase 4: computing metrics (IoU >= {iou_threshold})")
+            QgsMessageLog.logMessage(f"\n-- Phase 4: computing metrics (IoU >= {iou_threshold})")
             metrics = Metrics()
             self.cm: ConfusionMatrix = metrics.compute_from_shapefiles(
                 gt_shp            = args.ground_truth_shp,
@@ -471,8 +473,8 @@ class NgrviApproach:
 
         if cleanup:
             # ── Phase 5: cleanup ──────────────────────────────────────────
-            print(f"\n--Cleanup\n")
-            print(f"Removing recursively directory: {tiles_dir}")
+            QgsMessageLog.logMessage(f"\n--Cleanup\n")
+            QgsMessageLog.logMessage(f"Removing recursively directory: {tiles_dir}")
             shutil.rmtree(tiles_dir)
 
 
@@ -530,9 +532,9 @@ if __name__ == "__main__":
             outputs["TN"] += results.tn
 
         cm = ConfusionMatrix.fromDict(outputs)
-        print("\n========================\nAll orthomosaics\n========================\n")
+        QgsMessageLog.logMessage("\n========================\nAll orthomosaics\n========================\n")
         cm.print(model_path.parent / "confusion_matrix_all.txt")
         cm.plot(model_path.parent / "confusion_matrix_all.png")
         cm.plot(model_path.parent / "confusion_matrix_normalised_all.png", normalised=True)
-        print("\n========================")
+        QgsMessageLog.logMessage("\n========================")
 

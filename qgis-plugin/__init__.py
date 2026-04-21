@@ -5,7 +5,7 @@
 #-----------------------------------------------------------
 
 from enum import StrEnum
-from PyQt5.QtWidgets import QButtonGroup, QRadioButton
+from PyQt5.QtWidgets import QButtonGroup, QRadioButton, QPushButton
 from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
@@ -16,10 +16,11 @@ import joblib
 # sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
 
 from .ngrvi_approach import ApproachArgs, NgrviApproach
+from .svm_pretrain import SVMDetector
 
 from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 from qgis.gui import QgsMapLayerComboBox
-from qgis.core import QgsMapLayerProxyModel, QgsMessageLog
+from qgis.core import QgsMapLayerProxyModel, QgsMessageLog, QgsTask, QgsApplication
 
 class Approaches(StrEnum):
     OPENCV = "Classical computer vision"
@@ -31,8 +32,34 @@ def classFactory(iface):
     return MinimalPlugin(iface)
 
 
-class InputDialog(QDialog):
+class ProcessOrthomosaicTask(QgsTask):
+    def __init__(self, model, args, description="Processing Orthomosaic"):
+        super().__init__(description, QgsTask.CanCancel)
+        self.model = model
+        self.args = args
+        self.exception = None
 
+    def run(self):
+        """Runs in a background thread — no Qt UI calls here."""
+        try:
+            self.model.process_orthomosaic(self.args)
+            return True
+        except Exception as e:
+            self.exception = e
+            return False
+
+    def finished(self, result):
+        """Called on the main thread when run() completes."""
+        if result:
+            QMessageBox.information(None, "Done", "Orthomosaic processing complete!")
+        else:
+            QMessageBox.critical(
+                None, "Error",
+                f"Processing failed:\n{self.exception}"
+            )
+
+
+class InputDialog(QDialog):
     def __init__(self):
         super().__init__()
 
@@ -89,6 +116,10 @@ class InputDialog(QDialog):
         self.approach_label = QLabel("Selected:")
         layout.addWidget(self.approach_label)
 
+        train_button = QPushButton("Train SVM", self)
+        train_button.clicked.connect(self.train_invoked)
+        layout.addWidget(train_button)
+
         # OK / Cancel
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -100,6 +131,71 @@ class InputDialog(QDialog):
         layout.addWidget(buttons)
 
         self.setLayout(layout)
+
+
+    def train_invoked(self):
+        from .svm_pretrain import Pretrainer, PretrainConfig, get_feature_names
+        from .create_indexes import Bands, Indices
+
+        NU           = 0.001
+        KERNEL       = "rbf"
+        PCA_VARIANCE = 0.95    # fraction of variance to retain after PCA
+
+        OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb"
+        OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+
+        BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]
+        INDICES_TO_USE = [Indices.NGRDI]
+
+        home = Path.home()
+
+        configs = [
+            PretrainConfig(
+                ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+                shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+            ),
+            PretrainConfig(
+                ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+                shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+            ),
+            PretrainConfig(
+                ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
+                shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+            ),
+        ]
+
+        trainer = Pretrainer(
+            nu                 = NU,
+            kernel             = KERNEL,
+            pca_variance       = PCA_VARIANCE,
+            band_indices       = BANDS_TO_USE,
+            vegetation_indices = INDICES_TO_USE,
+            rectangle          = False,
+        )
+
+        # Phase 1: accumulate feature vectors from all orthomosaics
+        for cfg in configs:
+            trainer.train(
+                ortho_path     = cfg.ortho_path,
+                shapefile_path = cfg.shapefile_path,
+                limit          = 0.8,
+            )
+
+        # Phase 2: fit once on the full combined matrix
+        trainer.fit()
+
+        # Phase 3: save
+        trainer.dump(OUTPUT_PATH / "pretrain_output_model.joblib")
+
+        # Phase 4: diagnostics
+        feature_names = get_feature_names()
+
+        from .run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
+        plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
+                            feature_names=feature_names, max_features=10)
+        plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
+                            feature_names=feature_names, pca_variance=PCA_VARIANCE)
+        plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")
 
 
     def get_inputs(self):
@@ -151,7 +247,7 @@ class MinimalPlugin:
 
             msg = f"Raster: {raster.source()}\n"
             if approach == Approaches.OPENCV:
-                model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_ex/pretrain_output_model.joblib"
+                model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
                 QMessageBox.information(
                     None,
                     "model",
@@ -159,11 +255,15 @@ class MinimalPlugin:
                 model = NgrviApproach(model_pth)
 
                 args = ApproachArgs(
-                    ground_truth_shp = Path(str(vector)) if vector else None,
-                    orthomosaic_path = Path(str(raster))
+                    ground_truth_shp = Path(str(vector.source())) if vector else None,
+                    orthomosaic_path = Path(str(raster.source()))
                 )
 
-                model.process_orthomosaic(args)
+                QgsMessageLog.logMessage(f"args.ground_truth_shp: {args.ground_truth_shp}\nargs.orthomosaic_path: {args.orthomosaic_path}")
+
+                task = ProcessOrthomosaicTask(model, args)
+                self._task = task
+                QgsApplication.taskManager().addTask(task)
 
 
             QMessageBox.information(None, "Inputs received", msg)
