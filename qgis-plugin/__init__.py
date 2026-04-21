@@ -9,8 +9,12 @@ from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
 sys.path.append(str(Path("/usr/lib/python3/dist-packages")))
+sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
 
-from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QDialogButtonBox
+from classifiers.ngrvi_approach import ApproachArgs, NgrviApproach
+from classifiers.svm_pretrain import SVMDetector
+
+from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 from PyQt5.QtCore import QSize
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import QgsMapLayerProxyModel
