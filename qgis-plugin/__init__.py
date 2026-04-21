@@ -19,6 +19,11 @@ from PyQt5.QtCore import QSize
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import QgsMapLayerProxyModel
 
+class Approaches(StrEnum):
+    OPENCV = "Classical computer vision"
+    AI = "Object detection via AI model"
+    MIX = "Merged approach"
+
 
 def classFactory(iface):
     return MinimalPlugin(iface)
@@ -61,9 +66,9 @@ class InputDialog(QDialog):
         # Choose approach with which to find the potatoes.
         self.radio_button_group = QButtonGroup(self)
 
-        self.cv_approach = QRadioButton("Classical computer vision")
-        self.ai_approach = QRadioButton("Object detection via AI model")
-        self.merge_approach = QRadioButton("Merged approach")
+        self.cv_approach = QRadioButton(Approaches.OPENCV)
+        self.ai_approach = QRadioButton(Approaches.AI)
+        self.merge_approach = QRadioButton(Approaches.MIX)
 
         self.radio_button_group.addButton(self.cv_approach)
         self.radio_button_group.addButton(self.ai_approach)
