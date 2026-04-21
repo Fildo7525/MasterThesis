@@ -4,20 +4,22 @@
 # Licensed under the terms of GNU GPL 2
 #-----------------------------------------------------------
 
+from enum import StrEnum
 from PyQt5.QtWidgets import QButtonGroup, QRadioButton
 from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
-sys.path.append(str(Path("/usr/lib/python3/dist-packages")))
-sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
 
-from classifiers.ngrvi_approach import ApproachArgs, NgrviApproach
-from classifiers.svm_pretrain import SVMDetector
+sys.path.append(str(Path(__file__).resolve().parents[1] / ".venv/lib/python3.12/site-packages"))
+import joblib
+# sys.path.append(str(Path("/usr/lib/python3/dist-packages")))
+# sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
+
+from .ngrvi_approach import ApproachArgs, NgrviApproach
 
 from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
-from PyQt5.QtCore import QSize
 from qgis.gui import QgsMapLayerComboBox
-from qgis.core import QgsMapLayerProxyModel
+from qgis.core import QgsMapLayerProxyModel, QgsMessageLog
 
 class Approaches(StrEnum):
     OPENCV = "Classical computer vision"
@@ -148,12 +150,20 @@ class MinimalPlugin:
                 return
 
             msg = f"Raster: {raster.source()}\n"
+            if approach == Approaches.OPENCV:
+                model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_ex/pretrain_output_model.joblib"
+                QMessageBox.information(
+                    None,
+                    "model",
+                    f"Model path: {model_pth}\nModel exists: {model_pth.exists()}\nJoblib version: {joblib.__version__}")
+                model = NgrviApproach(model_pth)
 
-            if vector:
-                msg += f"Shapefile: {vector.source()}\n"
-            else:
-                msg += "No shapefile selected\n"
+                args = ApproachArgs(
+                    ground_truth_shp = Path(str(vector)) if vector else None,
+                    orthomosaic_path = Path(str(raster))
+                )
 
-            msg += f"Approach {approach}"
+                model.process_orthomosaic(args)
+
 
             QMessageBox.information(None, "Inputs received", msg)
