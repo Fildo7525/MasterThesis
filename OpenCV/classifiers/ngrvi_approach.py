@@ -4,6 +4,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
+sys.path.append(str(Path(__file__).resolve().parents[2] / ".venv/lib/python3.12/site-packages"))
+sys.path.append(str(Path(__file__).resolve().parent))
+
 import joblib
 import cv2 as cv
 from cv2.typing import MatLike
