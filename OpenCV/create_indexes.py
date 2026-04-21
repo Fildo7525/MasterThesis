@@ -153,8 +153,8 @@ def compute_index(name: str | Indices, bands: list[np.ndarray]) -> np.ndarray:
     Bands are expected to be normalized to [0, 1] (i.e. divided by 65535
     prior to calling this function). Returns a float32 array.
     """
-    R   = bands[Bands.RED - 1]
-    G   = bands[Bands.GREEN - 1]
+    R   = bands[Bands.EXTEND_RED - 1]
+    G   = bands[Bands.EXTEND_GREEN - 1]
     B   = bands[Bands.BLUE - 1]
     RE  = bands[Bands.REDEDGE - 1]
     NIR = bands[Bands.NIR - 1]
