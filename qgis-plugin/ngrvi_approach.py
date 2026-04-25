@@ -477,6 +477,8 @@ class NgrviApproach:
             QgsMessageLog.logMessage(f"Removing recursively directory: {tiles_dir}")
             shutil.rmtree(tiles_dir)
 
+        return pred_shp.absolute()
+
 
 
 if __name__ == "__main__":
