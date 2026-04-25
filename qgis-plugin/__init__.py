@@ -20,7 +20,14 @@ from .svm_pretrain import SVMDetector
 
 from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 from qgis.gui import QgsMapLayerComboBox
-from qgis.core import QgsMapLayerProxyModel, QgsMessageLog, QgsTask, QgsApplication
+from qgis.core import (
+    QgsMapLayerProxyModel,
+    QgsMessageLog,
+    QgsTask,
+    QgsApplication,
+    QgsVectorLayer,
+    QgsProject
+)
 
 class Approaches(StrEnum):
     OPENCV = "Classical computer vision"
@@ -42,7 +49,16 @@ class ProcessOrthomosaicTask(QgsTask):
     def run(self):
         """Runs in a background thread — no Qt UI calls here."""
         try:
-            self.model.process_orthomosaic(self.args)
+            predicted_shapefile = self.model.process_orthomosaic(self.args)
+            vector_layer = QgsVectorLayer(str(predicted_shapefile), predicted_shapefile.stem)
+            if not vector_layer.isValid():
+                QMessageBox.critical(
+                    None, "Error",
+                    f"Layer: {predicted_shapefile} does not exist"
+                )
+            else:
+                QgsProject.instance().addMapLayer(vector_layer)
+
             return True
         except Exception as e:
             self.exception = e
