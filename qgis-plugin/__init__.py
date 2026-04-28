@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[1] / ".venv/lib/python3.12/site-packages"))
+sys.path.append(str(Path(__file__).resolve().parent / ".venv/lib/python3.12/site-packages"))
 import joblib
 # sys.path.append(str(Path("/usr/lib/python3/dist-packages")))
 # sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
