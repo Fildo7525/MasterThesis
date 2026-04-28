@@ -4,8 +4,10 @@
 # Licensed under the terms of GNU GPL 2
 #-----------------------------------------------------------
 
+from qgis.gui import QgsFileWidget
+from qgis.core import QgsProcessingOutputFolder
 from enum import StrEnum
-from PyQt5.QtWidgets import QButtonGroup, QRadioButton, QPushButton
+from PyQt5.QtWidgets import QApplication, QButtonGroup, QRadioButton, QPushButton
 from PyQt5.QtWidgets import QCheckBox
 import sys
 from pathlib import Path
@@ -21,6 +23,7 @@ from .svm_pretrain import SVMDetector
 from PyQt5.QtWidgets import QAction, QMessageBox, QDialog, QVBoxLayout, QLabel, QDialogButtonBox
 from qgis.gui import QgsMapLayerComboBox
 from qgis.core import (
+    Qgis,
     QgsMapLayerProxyModel,
     QgsMessageLog,
     QgsTask,
@@ -28,6 +31,8 @@ from qgis.core import (
     QgsVectorLayer,
     QgsProject
 )
+
+MESSAGE_CATEGORY = "ProcessOrthomosaicTask"
 
 class Approaches(StrEnum):
     OPENCV = "Classical computer vision"
@@ -46,10 +51,22 @@ class ProcessOrthomosaicTask(QgsTask):
         self.args = args
         self.exception = None
 
+    def increase_task_count(self, idx):
+        self.setProgress(idx)
+        QgsMessageLog.logMessage(f"Done tile: {idx}", MESSAGE_CATEGORY, Qgis.Info)
+
     def run(self):
         """Runs in a background thread — no Qt UI calls here."""
         try:
-            predicted_shapefile = self.model.process_orthomosaic(self.args)
+            predicted_shapefile = self.model.process_orthomosaic(
+                self.args,
+                counter_predicate = self.increase_task_count,
+                cancel_check = self.isCanceled
+            )
+
+            if predicted_shapefile is None:
+                return False
+
             vector_layer = QgsVectorLayer(str(predicted_shapefile), predicted_shapefile.stem)
             if not vector_layer.isValid():
                 QMessageBox.critical(
@@ -74,6 +91,13 @@ class ProcessOrthomosaicTask(QgsTask):
                 f"Processing failed:\n{self.exception}"
             )
 
+    def cancel(self):
+        QgsMessageLog.logMessage(
+            f"RProcessOrhomosaic \"{self.description()}\" was canceled",
+            MESSAGE_CATEGORY, Qgis.Info)
+        self.model.terminate()
+        super().cancel()
+
 
 class InputDialog(QDialog):
     def __init__(self):
@@ -90,6 +114,13 @@ class InputDialog(QDialog):
         self.raster_box = QgsMapLayerComboBox()
         self.raster_box.setFilters(QgsMapLayerProxyModel.RasterLayer)
         layout.addWidget(self.raster_box)
+
+        # Output directory
+        layout.addWidget(QLabel("Output directory (required):"))
+
+        self.folder_widget = QgsFileWidget(self)
+        self.folder_widget.setStorageMode(QgsFileWidget.GetDirectory)
+        layout.addWidget(self.folder_widget)
 
         # Optional shapefile
         layout.addWidget(QLabel("Shapefile:"))
@@ -147,6 +178,7 @@ class InputDialog(QDialog):
 
     def get_inputs(self):
         raster = self.raster_box.currentLayer()
+        output_dir = self.folder_widget.filePath()
 
         if self.use_gt_checkbox.isChecked():
             vector = self.vector_box.currentLayer()
@@ -154,7 +186,7 @@ class InputDialog(QDialog):
             vector = None
 
         approach = self.radio_button_group.checkedButton().text()
-        return raster, vector, approach
+        return raster, output_dir, vector, approach,
 
 
     def on_radio_change(self, button: QRadioButton):
@@ -182,7 +214,7 @@ class MinimalPlugin:
 
         if dlg.exec_():
 
-            raster, vector, approach = dlg.get_inputs()
+            raster, output_dir, vector, approach = dlg.get_inputs()
 
             if raster is None:
                 QMessageBox.warning(
@@ -192,18 +224,16 @@ class MinimalPlugin:
                 )
                 return
 
-            msg = f"Raster: {raster.source()}\n"
             if approach == Approaches.OPENCV:
                 model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
-                QMessageBox.information(
-                    None,
-                    "model",
+                QgsMessageLog.logMessage(
                     f"Model path: {model_pth}\nModel exists: {model_pth.exists()}\nJoblib version: {joblib.__version__}")
-                model = NgrviApproach(model_pth)
+                model = NgrviApproach(model_pth, Path(output_dir))
 
                 args = ApproachArgs(
                     ground_truth_shp = Path(str(vector.source())) if vector else None,
-                    orthomosaic_path = Path(str(raster.source()))
+                    orthomosaic_path = Path(str(raster.source())),
+                    rename_existing_output_dir = False
                 )
 
                 QgsMessageLog.logMessage(f"args.ground_truth_shp: {args.ground_truth_shp}\nargs.orthomosaic_path: {args.orthomosaic_path}")
@@ -212,5 +242,3 @@ class MinimalPlugin:
                 self._task = task
                 QgsApplication.taskManager().addTask(task)
 
-
-            QMessageBox.information(None, "Inputs received", msg)

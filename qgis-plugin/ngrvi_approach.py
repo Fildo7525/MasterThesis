@@ -1,3 +1,4 @@
+from typing import Callable
 import sys
 from pathlib import Path
 
@@ -84,13 +85,14 @@ def _process_tile_worker(task: _TileTask) -> str:
 
 
 class NgrviApproach:
-    def __init__(self, model_path: Path | str):
-        self.output:     Path = Path.cwd() / "output"
-        self.labels_dir: Path = self.output / "labels"
-        self.extractor        = FeatureExtractor()
+    def __init__(self, model_path: Path | str, output_dir: Path | None = None):
+        self.output: Path | None = output_dir
+        self.labels_dir: Path | None = self.output
+        self.extractor = FeatureExtractor()
 
         # Keep the path so spawned workers can re-load the model independently
         self._model_path = Path(model_path)
+        self._pool = None
 
         meta = joblib.load(model_path)
 
@@ -126,6 +128,9 @@ class NgrviApproach:
 
             # path.rename does not work if the directory is not empty.
             shutil.move(str(output), str(new_name_for_existing))
+
+        elif not self.output.exists():
+            self.output.mkdir(parents=True, exist_ok=True)
 
         self.labels_dir = self.output / "labels"
         if not self.labels_dir.exists():
@@ -190,6 +195,7 @@ class NgrviApproach:
 
         label_file = None
         if save_labels:
+            assert self.labels_dir is not None, "Labels dir cannot be None in extract_segmented_objects"
             label_file = open(self.labels_dir / f"tile_{row}_{column}.txt", "w")
 
         try:
@@ -378,6 +384,7 @@ class NgrviApproach:
                     QgsMessageLog.logMessage(f"  [{self._model_name}] tile_{row}_{column}: OUT-GROUP  ✗  score={score:+.4f}")
 
         if label_lines:
+            assert self.labels_dir is not None, "Labels dir cannot be None in process_window"
             label_path = self.labels_dir / f"tile_{row}_{column}.txt"
             with open(label_path, "w") as f:
                 f.writelines(label_lines)
@@ -385,12 +392,25 @@ class NgrviApproach:
         if DBG:
             QgsMessageLog.logMessage(f"  tile_{row}_{column}: {n_inlier}/{len(valid_vecs)} segments accepted by {self._model_name}")
 
+    def terminate(self):
+        """Called from the QGIS task thread to abort the pool immediately."""
+        if self._pool is not None:
+            self._pool.terminate()
+            self._pool.join()
+            self._pool = None
 
-    def process_orthomosaic(self, args: ApproachArgs, cleanup: bool = True):
+    def process_orthomosaic(self, args: ApproachArgs,
+                            cleanup: bool = True,
+                            counter_predicate: Callable = lambda x: x,
+                            cancel_check: Callable = lambda: False):
         import multiprocessing as mp
 
-        output: Path = Path.cwd() / f"output_{args.orthomosaic_path.stem}"
+        output: Path = self.output or Path.cwd() / f"output_{args.orthomosaic_path.stem}"
+        QgsMessageLog.logMessage(f"Setting output dir to {output}")
         self.set_output(output, args.rename_existing_output_dir)
+
+        assert self.output is not None, "output directory cannot be None in process_orthomosaic"
+        assert self.labels_dir is not None, "labels directory cannot be None in process_orthomosaic"
 
         tiles_dir  = self.output / "tiles"
         labels_dir = self.labels_dir   # already created by set_output
@@ -430,15 +450,32 @@ class NgrviApproach:
             for p in tile_paths
         ]
 
+        count_percentage = lambda x: 100. * x / len(tasks)
+        idx = 0
+
         ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=N_WORKERS) as pool:
-            for result in tqdm(
-                pool.imap_unordered(_process_tile_worker, tasks),
-                total=len(tasks),
-                desc="Tiles",
-            ):
-                if DBG and result:
-                    QgsMessageLog.logMessage(result)
+        self._pool = ctx.Pool(processes=N_WORKERS)
+        try:
+            with self._pool:
+                for result in tqdm(
+                    self._pool.imap_unordered(_process_tile_worker, tasks),
+                    total=len(tasks),
+                    desc="Tiles",
+                ):
+                    idx = idx + 1
+                    counter_predicate(count_percentage(idx))
+                    if DBG and result:
+                        QgsMessageLog.logMessage(result)
+
+                    if cancel_check():
+                        assert self._pool is not None, "constext Pool for processes cannot be None in main loop"
+
+                        self._pool.terminate()
+                        self._pool.join()
+                        self._pool = None
+
+        finally:
+            self._pool = None
 
         # ── Phase 3: convert labels to shapefile ──────────────────────────────
         QgsMessageLog.logMessage("\n-- Phase 3: converting labels to shapefile")
