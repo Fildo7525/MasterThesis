@@ -83,6 +83,12 @@ class ProcessOrthomosaicTask(QgsTask):
 
     def finished(self, result):
         """Called on the main thread when run() completes."""
+        if self.isCanceled():
+            QgsMessageLog.logMessage(
+                f"Task \"{self.description()}\" was cancelled.",
+                MESSAGE_CATEGORY, Qgis.Info)
+            return
+
         if result:
             QMessageBox.information(None, "Done", "Orthomosaic processing complete!")
         else:
@@ -95,8 +101,8 @@ class ProcessOrthomosaicTask(QgsTask):
         QgsMessageLog.logMessage(
             f"RProcessOrhomosaic \"{self.description()}\" was canceled",
             MESSAGE_CATEGORY, Qgis.Info)
-        self.model.terminate()
         super().cancel()
+        self.model.terminate()
 
 
 class InputDialog(QDialog):
@@ -160,9 +166,6 @@ class InputDialog(QDialog):
         layout.addWidget(self.ai_approach)
         layout.addWidget(self.merge_approach)
 
-        self.approach_label = QLabel("Selected:")
-        layout.addWidget(self.approach_label)
-
         # OK / Cancel
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
@@ -180,6 +183,10 @@ class InputDialog(QDialog):
         raster = self.raster_box.currentLayer()
         output_dir = self.folder_widget.filePath()
 
+        if not raster.isValid() or not output_dir:
+            QMessageBox.information(self, "Invalid input", "Raster layer and output directory are required fields.")
+            return None
+
         if self.use_gt_checkbox.isChecked():
             vector = self.vector_box.currentLayer()
         else:
@@ -191,7 +198,6 @@ class InputDialog(QDialog):
 
     def on_radio_change(self, button: QRadioButton):
         button.setChecked(True)
-        self.approach_label.setText(f"Selected: {button.text()}")
 
 
 class MinimalPlugin:
@@ -214,16 +220,16 @@ class MinimalPlugin:
 
         if dlg.exec_():
 
-            raster, output_dir, vector, approach = dlg.get_inputs()
+            inputs = dlg.get_inputs()
 
-            if raster is None:
+            if inputs is None:
                 QMessageBox.warning(
                     None,
                     "Error",
                     "You must select an orthomosaic raster."
                 )
                 return
-
+            raster, output_dir, vector, approach = inputs
             if approach == Approaches.OPENCV:
                 model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
                 QgsMessageLog.logMessage(
