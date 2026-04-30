@@ -146,6 +146,7 @@ def merge_tiles(tiles_dir: Path, output_tif: Path, tile_size: int, overlap: int 
     tile_pattern = re.compile(r'tile_(\d+)_(\d+)\.tif')
     tiles = {}
 
+    print(f"Searching directory: {tiles_dir}")
     for tile_file in tiles_dir.glob('tile_*.tif'):
         match = tile_pattern.match(tile_file.name)
         if match:
@@ -213,7 +214,7 @@ def merge_tiles(tiles_dir: Path, output_tif: Path, tile_size: int, overlap: int 
                         tile_data: np.ndarray = src.read()
                         h, w = tile_data.shape[1], tile_data.shape[2]
 
-                        tile_data[tile_data > 15000] = 0  # Set no-data values to 0
+                        # tile_data[tile_data > 15000] = 0  # Set no-data values to 0
 
                         # Write to output at correct position
                         window = Window(x_off, y_off, w, h)
