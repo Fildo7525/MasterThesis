@@ -408,7 +408,7 @@ if __name__ == "__main__":
 
     from run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
     plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
-                        feature_names=feature_names, max_features=10)
+                        feature_names=feature_names, max_features=5)
     plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
                         feature_names=feature_names, pca_variance=PCA_VARIANCE)
     plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")

@@ -130,16 +130,16 @@ def plot_feature_matrix(pretrainer, out_path: Path,
                                s=4, alpha=0.8, color=OUTLIER_COLOR, label="Outliers")
 
             if i == n_features - 1:
-                ax.set_xlabel(names[j], fontsize=FONT_SIZE*1.4)
+                ax.set_xlabel(names[j], fontsize=FONT_SIZE*1.2)
             if j == 0:
-                ax.set_ylabel(names[i], fontsize=FONT_SIZE*1.4)
+                ax.set_ylabel(names[i], fontsize=FONT_SIZE*1.2)
             ax.tick_params(axis="both", which="both", labelsize=5)
 
     handles = [
         mpatches.Patch(color=INLIER_COLOR,  label="Inliers"),
         mpatches.Patch(color=OUTLIER_COLOR, label="Outliers"),
     ]
-    fig.legend(handles=handles, loc="upper right", fontsize=FONT_SIZE*1.8)
+    fig.legend(handles=handles, loc="upper right", fontsize=FONT_SIZE*1.5)
 
     plt.tight_layout()
     plt.savefig(out_path, dpi=120, bbox_inches="tight")
