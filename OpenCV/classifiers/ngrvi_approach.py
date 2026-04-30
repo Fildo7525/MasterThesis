@@ -374,7 +374,7 @@ class NgrviApproach:
             if pred == 1:
                 n_inlier += 1
                 x1, y1, x2, y2, x3, y3, x4, y4 = segm
-                label_lines.append(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+                label_lines.append(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4} {score}\n")
                 if DBG:
                     print(f"  [{self._model_name}] tile_{row}_{column}:  IN-GROUP  ✓  score={score:+.4f}")
             else:
