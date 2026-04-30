@@ -63,3 +63,6 @@ Orthomosaics
 output_*
 runs/*
 runs/obb
+/QGIS_output_test
+/QGIS_output_test_0001
+/QGIS_test_small
