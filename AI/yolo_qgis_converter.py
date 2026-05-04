@@ -253,9 +253,9 @@ class YOLOShapefileConverter:
         with open(yolo_label_path, 'r') as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) == 5:
+                if len(parts) in [5, 6]:
                     model = YoloDatasetModel.OBB
-                elif len(parts) == 9:
+                elif len(parts) in [9, 10]:
                     model = YoloDatasetModel.SEGMENTATION
                 else:
                     raise ValueError(f"Invalid YOLO annotation format: {line.strip()}")
@@ -271,7 +271,7 @@ class YOLOShapefileConverter:
                 x_bottom_left: float = 0.0
                 y_bottom_left: float = 0.0
 
-                if model == YoloDatasetModel.OBB and len(parts) == 5:
+                if model == YoloDatasetModel.OBB and len(parts) in [5, 6]:
                     x_center = float(parts[1]) * width
                     y_center = float(parts[2]) * height
                     width_box = float(parts[3]) * width
@@ -287,7 +287,7 @@ class YOLOShapefileConverter:
                     x_bottom_left = x_center - width_box / 2
                     y_bottom_left = y_center + height_box / 2
 
-                if model == YoloDatasetModel.SEGMENTATION and len(parts) == 9:
+                if model == YoloDatasetModel.SEGMENTATION and len(parts) in [9, 10]:
                     x_top_left = float(parts[1]) * width
                     y_top_left = float(parts[2]) * height
                     x_top_right = float(parts[3]) * width
