@@ -22,19 +22,15 @@ Confusion Matrix Components:
     - TN (True Negative): Images with no objects in both GT and predictions
 """
 
+from geopandas import GeoDataFrame
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-import sys
-
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-from AI.yolo_qgis_converter import YOLOShapefileConverter, YoloDatasetModel
 
 FONT_SIZE = 16
 
@@ -109,10 +105,10 @@ class ConfusionMatrix:
                 f.write(f"FP: {self.fp}\n")
                 f.write(f"FN: {self.fn}\n")
                 f.write(f"TN: {self.tn}\n")
-                f.write(f"Accuracy {accuracy:.4f}\n")
-                f.write(f"F1-Score {f1:.4f}\n")
-                f.write(f"Precision {precision:.4f}\n")
-                f.write(f"Recall {recall:.4f}\n")
+                f.write(f"Accuracy: {accuracy:.4f}\n")
+                f.write(f"Precision: {precision:.4f}\n")
+                f.write(f"F1-Score: {f1:.4f}\n")
+                f.write(f"Recall: {recall:.4f}\n")
 
 
     def plot(self, save: Path | str, *, normalised: bool = False, hold: bool = True):
@@ -336,60 +332,71 @@ class Metrics:
     def compute_from_shapefiles(self,
                                 gt_shp: Path | str,
                                 pred_shp: Path | str,
-                                reference_tif_dir: Path | str,
                                 *,
-                                iou_threshold: float=0.5,
-                                cleanup: bool = True):
+                                iou_threshold: float = 0.5):
         """
-        Compute confusion matrix directly from shapefiles by converting them to YOLO format.
-        This method will convert the provided ground truth and predicted shapefiles into YOLO annotation format,
-        and then compute the confusion matrix using the same logic as compute_confusion_matrix.
+        Compute confusion matrix directly from shapefiles without intermediate YOLO text files.
+
+        Each geometry's axis-aligned bounding box is extracted and matched using the same
+        IoU logic as compute_confusion_matrix. Results are identical to the old implementation
+        because tiles do not overlap geographically, so cross-tile IoU is always 0 and the
+        per-tile grouping used previously has no effect on the final counts.
 
         Args:
             gt_shp: Path to the ground truth shapefile.
             pred_shp: Path to the predicted shapefile.
-            reference_tif_dir: Directory containing reference TIFF images for cutout generation.
+            reference_tif_dir: No longer required. Kept for backward compatibility.
             iou_threshold: IoU threshold for matching boxes (default=0.5).
-            cleanup: If True, temporary YOLO annotation directories will be deleted after computation.
+            cleanup: No longer required. Kept for backward compatibility.
 
         Return:
-            ConfusionMatrix: The computed confusion matrix based on the converted YOLO annotations.
+            ConfusionMatrix: The computed confusion matrix.
         """
-        converter = YOLOShapefileConverter()
+        try:
+            import geopandas as gpd
+        except ImportError:
+            raise ImportError(
+                "geopandas is required for direct shapefile computation. "
+                "Install it with: pip install geopandas"
+            )
 
-        print(f"reference tif dir {reference_tif_dir}")
-        tmp_dir = Path(reference_tif_dir).parent / "metrics" / "tmp"
-        if not tmp_dir.exists():
-            tmp_dir.mkdir(parents=True)
+        gt_gdf: GeoDataFrame = gpd.read_file(gt_shp)
+        pred_gdf: GeoDataFrame = gpd.read_file(pred_shp)
 
-        gt_labels_dir = tmp_dir / "gt_labels"
-        if not gt_labels_dir.exists():
-            gt_labels_dir.mkdir(parents=True)
+        # Ensure both layers share the same coordinate reference system.
+        if pred_gdf.crs != gt_gdf.crs:
+            pred_gdf = pred_gdf.to_crs(gt_gdf.crs)
 
-        pred_labels_dir = tmp_dir / "pred_labels"
-        if not pred_labels_dir.exists():
-            pred_labels_dir.mkdir(parents=True)
+        def _geom_to_box(geom):
+            """
+            Convert a shapely geometry to the 8-coordinate segmentation format
+            (x1,y1, x2,y2, x3,y3, x4,y4) expected by __calculate_iou.
+            The axis-aligned bounding box corners are used, matching what the
+            YOLO segmentation parser effectively computes when it calls min/max
+            on the parsed coordinates.
+            """
+            minx, miny, maxx, maxy = geom.bounds
+            return (minx, miny, maxx, miny, maxx, maxy, minx, maxy)
 
-        converter.shapefile_to_yolo_cutouts(
-            shapefile_path = gt_shp,
-            cutouts_dir = reference_tif_dir,
-            output_labels_dir = gt_labels_dir,
-            database_model=YoloDatasetModel.SEGMENTATION
-        )
+        gt_boxes = [
+            _geom_to_box(geom)
+            for geom in gt_gdf.geometry
+            if geom is not None and not geom.is_empty
+        ]
+        pred_boxes = [
+            _geom_to_box(geom)
+            for geom in pred_gdf.geometry
+            if geom is not None and not geom.is_empty
+        ]
 
-        converter.shapefile_to_yolo_cutouts(
-            shapefile_path = pred_shp,
-            cutouts_dir = reference_tif_dir,
-            output_labels_dir = pred_labels_dir,
-            database_model=YoloDatasetModel.SEGMENTATION
-        )
+        total = ConfusionMatrix()
 
-        results = self.compute_confusion_matrix(gt_labels_dir, pred_labels_dir, iou_threshold)
+        if len(gt_boxes) == 0 and len(pred_boxes) == 0:
+            return total
 
-        if cleanup:
-            self.cleaup(tmp_dir)
+        total.tp, total.fp, total.fn = self.__match_boxes(gt_boxes, pred_boxes, iou_threshold)
 
-        return results
+        return total
 
 
 if __name__ == "__main__":
@@ -428,4 +435,3 @@ if __name__ == "__main__":
         results.print()
         results.plot(hold=True, save = pth / "confusion_matrix.png")
         results.plot(normalised=True, save = pth / "confusion_matrix_normalised.png")
-
