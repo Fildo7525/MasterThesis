@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from .create_indexes import Bands
+from create_indexes import Bands
 
 from pathlib import Path
 from tqdm import tqdm
