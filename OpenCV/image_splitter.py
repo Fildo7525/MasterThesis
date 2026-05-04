@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 
-from typing import Callable, Any
-import os
-import math
-import rasterio
-from rasterio.io import DatasetReader
-from rasterio.windows import Window
+from .create_indexes import Bands
+
 from pathlib import Path
 from tqdm import tqdm
-from create_indexes import Bands
+from typing import Callable
+import math
 import numpy as np
+import os
+import rasterio
 
-from rasterio.warp import reproject,  Resampling
 from affine import Affine
-
+from rasterio.io import DatasetReader
 from rasterio.warp import reproject,  Resampling
-from affine import Affine
+from rasterio.windows import Window
 
 ORTHO_IMG_DIR = Path("../Orthomosaics/")
 
