@@ -523,11 +523,14 @@ class YOLOShapefileConverter:
                 inv_transform = ~transform
 
                 # Get class ID
-                class_id = 0 #int(row.get('class_id', 0))
+                class_id = int(row.get('class_id', 0) or 0)
+
+                # Get geometry confidence
+                confidence = float(row.get('confidence', 0.0) or 0.0)
 
                 arr = []
 
-                if database_model == YoloDatasetModel.SEGMENTATION:
+                if database_model in [YoloDatasetModel.SEGMENTATION, YoloDatasetModel.SEGMENTATION_WITH_CONF]:
                     # If the image is rotated, we need to rotate the shapes to the same angle before converting to pixel
                     # coordinates
                     if angle != 0:
@@ -576,15 +579,15 @@ class YOLOShapefileConverter:
 
                     # Shapely orders elements couter-clockwise but YOLO expects them in clockwise order, so we need to reorder the coordinates
                     order = [0, 1, 6, 7, 4, 5, 2, 3]
-                    arr = [pixel_coords[i] for i in order]
+                    arr = [confidence] + [pixel_coords[i] for i in order]
 
-                    if len(arr) != 8:
+                    if len(arr) < 8:
                         # print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
                         continue
 
                     # print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
 
-                elif database_model == YoloDatasetModel.OBB:
+                elif database_model in [YoloDatasetModel.OBB, YoloDatasetModel.OBB_WITH_CONF]:
                     # For OBB, use the bounding box of the clipped geometry
                     minx, miny, maxx, maxy = clipped.bounds
 
@@ -612,11 +615,16 @@ class YOLOShapefileConverter:
                     box_width /= width
                     box_height /= height
 
-                    arr = [x_center, y_center, box_width, box_height, angle]
+                    arr = [confidence, x_center, y_center, box_width, box_height, angle]
 
                 # Skip if any coordinate is out of bounds
                 # For OBB, check only the first 4 values (center and dimensions), angle can be any value
-                array = arr[:4] if database_model == YoloDatasetModel.OBB else arr
+                array = []
+                if database_model in [YoloDatasetModel.OBB, YoloDatasetModel.OBB_WITH_CONF]:
+                    array = arr[1:5]
+                else:
+                    array = arr[1:]
+
                 if not all(0.0 <= v <= 1.0 for v in array):
                     # print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
                     continue
@@ -625,6 +633,7 @@ class YOLOShapefileConverter:
                 f.write(f"{class_id} {coords}\n")
                 annotations.append({
                     'class_id': class_id,
+                    'confidence': confidence,
                     'coords': coords,
                     'width': width,
                     'height': height
