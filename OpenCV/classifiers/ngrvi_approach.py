@@ -81,7 +81,7 @@ def _process_tile_worker(task: _TileTask) -> str:
     row, col   = int(stem_parts[1]), int(stem_parts[2])
 
     with rasterio.open(tile_path) as src:
-        window = Window(0, 0, src.width, src.height)
+        window = Window(0, 0, src.width, src.height) # pyright: ignore
         appr.process_window(src, window, row, col)
 
     return f"tile_{row}_{col}: done"
@@ -92,6 +92,16 @@ class NgrviApproach:
         self.output:     Path = Path.cwd() / "output"
         self.labels_dir: Path = self.output / "labels"
         self.extractor        = FeatureExtractor()
+        self.VI = Indices.NGRVI
+
+        self.thresholds = {
+            Indices.NGRVI: UINT16_MAX * 0.016,
+            Indices.NDVI:  UINT16_MAX * 0.820,
+            Indices.EXGR:  UINT16_MAX * 0.5009,
+            Indices.NGRDI: UINT16_MAX * 0.45,
+            Indices.OSAVI: UINT16_MAX * 0.6295,
+            Indices.MGRVI: UINT16_MAX * 0.5,
+        }
 
         # Keep the path so spawned workers can re-load the model independently
         self._model_path = Path(model_path)
@@ -139,9 +149,9 @@ class NgrviApproach:
     def create_ngrvi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         list_bands = [bands[i, :, :] for i in range(bands.shape[0])]
 
-        index           = compute_index(Indices.NGRVI.name, list_bands)
-        ngrdi_u16       = scale_to_uint16(index, Indices.NGRVI.name)
-        threshold_value = UINT16_MAX * 0.016
+        index           = compute_index(self.VI, list_bands)
+        ngrdi_u16       = scale_to_uint16(index, self.VI)
+        threshold_value = self.thresholds[self.VI]
         mask            = np.zeros_like(ngrdi_u16)
         cv.threshold(ngrdi_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
 
@@ -346,12 +356,14 @@ class NgrviApproach:
         # ── 3. Extract feature vectors (crops, not full-tile) ─────────────────
         valid_segms: list = []
         valid_vecs:  list = []
+        valid_bboxes: list = []
 
         for segm, bbox, seg_mask in results:
             vec = self.extract_feat_vector(bands, seg_mask, bbox, ngrvi_mask)
             if vec is not None:
                 valid_segms.append(segm)
                 valid_vecs.append(vec)
+                valid_bboxes.append(bbox)
 
         if not valid_vecs:
             if DBG:
@@ -370,11 +382,19 @@ class NgrviApproach:
         label_lines: list[str] = []
         n_inlier = 0
 
-        for segm, pred, score in zip(valid_segms, preds, scores):
+        for segm, bbox, pred, score in zip(valid_segms, valid_bboxes, preds, scores):
             if pred == 1:
                 n_inlier += 1
-                x1, y1, x2, y2, x3, y3, x4, y4 = segm
-                label_lines.append(f"0 {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4} {score}\n")
+                # x1, y1, x2, y2, x3, y3, x4, y4 = segm
+                # label_lines.append(f"0 {score} {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+                x, y, w, h = bbox
+                nx = (x + w/2) / bands.shape[2]
+                ny = (y + h/2) / bands.shape[1]
+                w = w / bands.shape[2]
+                h = h / bands.shape[1]
+
+                label_lines.append(f"0 {score} {nx} {ny} {w} {h}\n")
+
                 if DBG:
                     print(f"  [{self._model_name}] tile_{row}_{column}:  IN-GROUP  ✓  score={score:+.4f}")
             else:
@@ -414,7 +434,7 @@ class NgrviApproach:
         split_geotiff(
             input_tif  = args.orthomosaic_path,
             output_dir = tiles_dir,
-            tile_size  = 1024,
+            tile_size  = 2048,
             overlap    = 100,
         )
 
@@ -465,7 +485,6 @@ class NgrviApproach:
         self.cm: ConfusionMatrix = metrics.compute_from_shapefiles(
             gt_shp            = args.ground_truth_shp,
             pred_shp          = pred_shp,
-            reference_tif_dir = tiles_dir,
             iou_threshold     = iou_threshold,
         )
         metrics_path = self.output / "metrics"
@@ -493,9 +512,9 @@ if __name__ == "__main__":
     # model_path = base_dir / "OpenCV/iforest_output_rgb/iforest_model.joblib"           # IsolationForest
     # model_path = base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib"                   # GMM
     model_paths = [
-        # base_dir / "OpenCV/svm_output_rgb/svm_model.joblib",
-        base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib",
-        base_dir / "OpenCV/ifo_output_rgb/ifo_model.joblib",
+        base_dir / "OpenCV/svm_output_chosen_vi_base_NGRVI/svm_model.joblib",
+        # base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib",
+        # base_dir / "OpenCV/ifo_output_rgb/ifo_model.joblib",
     ]
 
 
