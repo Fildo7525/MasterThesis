@@ -61,12 +61,19 @@ PCA_VARIANCE = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
-BANDS_TO_USE   = [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
-INDICES_TO_USE = [Indices.NGRDI]
+OUTPUT_PATH_MASKS = OUTPUT_PATH / "masks"
+OUTPUT_PATH_MASKS.mkdir(parents=True, exist_ok=True)
 
+CONTINUE = True
+SILENT = False
+INDEX = 0
+
+BANDS_TO_USE   = None # [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
+# INDICES_TO_USE = [Indices.CIRE, Indices.EVI, Indices.MGRVI, Indices.NDVI, Indices.NGRDI, Indices.OSAVI, Indices.SAVI]
+INDICES_TO_USE = [Indices.EXGR, Indices.NDRE, Indices.MGRVI, Indices.NGRDI, Indices.NGRVI, Indices.RVI]
 
 # ---------------------------------------------------------------------------
 # Detector wrapper
@@ -99,7 +106,7 @@ class SVMDetector(BaseDetector):
         pca_variance: float = PCA_VARIANCE,
     ):
         self.scaler_ = StandardScaler()
-        self.pca_    = PCA(n_components=pca_variance)
+        self.pca_    = PCA(n_components=pca_variance) if PCA_VARIANCE < 1 else None
         self.model   = OneClassSVM(kernel=kernel, nu=nu, gamma="scale")
         self._fitted = False
 
@@ -109,14 +116,15 @@ class SVMDetector(BaseDetector):
 
     def fit(self, X: np.ndarray) -> "SVMDetector":
         X_scaled = self.scaler_.fit_transform(X)
-        X_pca    = self.pca_.fit_transform(X_scaled)
+        X_pca    = self.pca_.fit_transform(X_scaled) if self.pca_ else X_scaled
         self.model.fit(X_pca)
         self._fitted = True
 
-        n_kept    = self.pca_.n_components_
-        total_var = self.pca_.explained_variance_ratio_.sum()
-        print(f"   PCA: {X.shape[1]} features → {n_kept} components "
-              f"({total_var * 100:.1f} % variance retained)")
+        if self.pca_ is not None:
+            n_kept    = self.pca_.n_components_
+            total_var = self.pca_.explained_variance_ratio_.sum()
+            print(f"   PCA: {X.shape[1]} features → {n_kept} components "
+                  f"({total_var * 100:.1f} % variance retained)")
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -135,7 +143,7 @@ class SVMDetector(BaseDetector):
 
     def _transform(self, X: np.ndarray) -> np.ndarray:
         """Scale then project through PCA."""
-        return self.pca_.transform(self.scaler_.transform(X))
+        return self.pca_.transform(self.scaler_.transform(X)) if self.pca_ else X
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +175,14 @@ class Pretrainer:
         self.vegetation_indices = vegetation_indices
         self.rectangle          = rectangle
         self.last_X: np.ndarray | None = None
+        self.VI = Indices.NGRVI
+        self.thresholds = {
+            Indices.NGRVI: UINT16_MAX * 0.016,
+            Indices.NDVI:  UINT16_MAX * 0.820,
+            Indices.EXGR:  UINT16_MAX * 0.5009,
+            Indices.NGRDI: UINT16_MAX * 0.534065766,
+            Indices.MGRVI: UINT16_MAX * 0.5,
+        }
 
     # ------------------------------------------------------------------
     # Geometry helpers
@@ -191,13 +207,60 @@ class Pretrainer:
         return window, ~outside
 
     def create_ngrvi_mask(self, bands: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        global CONTINUE, SILENT, INDEX
+
         list_bands      = [bands[i, :, :] for i in range(bands.shape[0])]
-        index           = compute_index(Indices.NGRVI.name, list_bands)
-        ngrdi_u16       = scale_to_uint16(index, Indices.NGRVI.name)
-        threshold_value = UINT16_MAX * 0.016
-        mask            = np.zeros_like(ngrdi_u16)
-        cv.threshold(ngrdi_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
-        return mask, ngrdi_u16
+        index           = compute_index(self.VI, list_bands)
+        index_u16       = scale_to_uint16(index, self.VI)
+        threshold_value = self.thresholds[self.VI]
+        # threshold_value = UINT16_MAX * 0.820 # NDVI
+        # threshold_value = UINT16_MAX * 0.56458381 # NGRDI
+        mask            = np.zeros_like(index_u16)
+        cv.threshold(index_u16, threshold_value, UINT16_MAX, cv.THRESH_BINARY, dst=mask)
+
+        # for band in Bands:
+        #     cv.imwrite(OUTPUT_PATH_MASKS / f"{band.name}_{INDEX}.png", bdan)
+
+        # cv.imwrite(OUTPUT_PATH_MASKS / f"index_{INDEX}.png", index)
+        # cv.imwrite(OUTPUT_PATH_MASKS / f"u16_{INDEX}.png", ngrvi_u16)
+        # cv.imwrite(OUTPUT_PATH_MASKS / f"mask_{INDEX}.png", mask)
+
+        if not CONTINUE:
+            ngrdi = compute_index(Indices.NGRDI, list_bands)
+            ngrdi = 255 / (np.max(ngrdi) - np.min(ngrdi)) * ngrdi
+            cv.imwrite(OUTPUT_PATH_MASKS / f"ngrdi_{INDEX}.png", ngrdi)
+            cv.imwrite(OUTPUT_PATH_MASKS / f"index_{INDEX}.png", index)
+            cv.imwrite(OUTPUT_PATH_MASKS / f"ngrvi_u16_{INDEX}.png", index_u16)
+            cv.imwrite(OUTPUT_PATH_MASKS / f"mask_{INDEX}.png", mask)
+
+
+            if not SILENT:
+                # for band in Bands:
+                #     cv.imshow(f"Band {band.name}", bands[band - 1])
+
+                cv.imshow("ngrdi", ngrdi)
+                cv.imshow(f"index {INDEX}", index)
+                cv.imshow("ngrvi_u16", index_u16)
+                cv.imshow("mask", mask)
+                # for idx in Indices:
+                #     cv.imshow(f"{idx.name}", compute_index(idx, list_bands))
+                # for band in Bands:
+                #     cv.imshow(f"{band.name}", bands[band-1])
+
+                key = cv.waitKey(0)
+                cv.destroyAllWindows()
+
+                if key == ord('q'):
+                    quit(0)
+
+                elif key == ord('s'):
+                    SILENT = True
+
+                elif key == ord('c'):
+                    CONTINUE = True
+
+        INDEX = INDEX + 1
+        return mask, index_u16
 
     def extract_vector_from_polygon(
         self,
@@ -401,7 +464,7 @@ if __name__ == "__main__":
     trainer.fit()
 
     # Phase 3: save
-    trainer.dump(OUTPUT_PATH / "pretrain_output_model.joblib")
+    trainer.dump(OUTPUT_PATH / "svm_model.joblib")
 
     # Phase 4: diagnostics
     feature_names = get_feature_names()
@@ -409,6 +472,7 @@ if __name__ == "__main__":
     from run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
     plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
                         feature_names=feature_names, max_features=5)
-    plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
-                        feature_names=feature_names, pca_variance=PCA_VARIANCE)
-    plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")
+    if trainer.pipeline.pca_ is not None:
+        plot_pca_importance(trainer, OUTPUT_PATH / "pca_importance.png",
+                            feature_names=feature_names, pca_variance=PCA_VARIANCE)
+        plot_pca_scatter(trainer, OUTPUT_PATH / "pca_scatter.png")
