@@ -15,6 +15,7 @@ import pandas as pd
 from pathlib import Path
 from scipy.special import expit          # sigmoid
 from dataclasses import dataclass
+from shapely.geometry import Polygon, MultiPolygon
 from sklearn.metrics import (
     confusion_matrix, classification_report,
     roc_auc_score, roc_curve,
@@ -22,6 +23,7 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore")
+from functools import reduce
 
 import sys
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -358,88 +360,210 @@ def save_fused(
 # 10.  MAIN PIPELINE
 # ─────────────────────────────────────────────
 
+def build_fused_shapefile(
+    yolo: gpd.GeoDataFrame,        # conf_yolo column
+    svm:  gpd.GeoDataFrame,        # conf_svm column (raw margin distances)
+    buffer_m: float = 2.0,
+    svm_norm_method: NormalisationType = NormalisationType.MIN_MAX,
+    svm_min_confidence: float = 0.30,   # drop SVM polygons below this after normalisation
+) -> gpd.GeoDataFrame:
+    """
+    Fusion logic:
+      1. Normalise SVM scores and drop low-confidence SVM polygons (< svm_min_confidence).
+      2. Join SVM → YOLO (left join from SVM).
+         - SVM polygons WITH a nearby YOLO match  → confirmed, keep.
+         - SVM polygons WITHOUT a nearby YOLO match → noisy, drop.
+      3. Find YOLO polygons that matched NO SVM polygon → keep as YOLO-only detections.
+      4. Concatenate confirmed-SVM + YOLO-only into the final shapefile.
+      5. Assign a fused confidence per polygon and deduplicate on geometry.
+    """
+    # ── Reproject to a common projected CRS for distance ops ──────────────
+    utm = yolo.estimate_utm_crs()
+    yolo_p = yolo.to_crs(utm).copy()
+    svm_p  = svm.to_crs(utm).copy()
+
+    # ── Step 1: normalise & pre-filter SVM ───────────────────────────────
+    svm_p["conf_svm_norm"] = normalise_svm(svm_p["conf_svm"], method=svm_norm_method)
+
+    before_filter = len(svm_p)
+    svm_p = svm_p[svm_p["conf_svm_norm"] >= svm_min_confidence].copy()
+    print(f"SVM pre-filter: {before_filter} → {len(svm_p)} polygons "
+          f"(dropped {before_filter - len(svm_p)} below {svm_min_confidence:.0%})")
+
+    # ── Step 2: SVM → YOLO join (SVM is the left/base table) ─────────────
+    svm_joined = gpd.sjoin_nearest(
+        svm_p,
+        yolo_p[["geometry", "conf_yolo"]].reset_index(names="yolo_idx"),
+        how="left",
+        max_distance=buffer_m,
+        distance_col="_dist",
+    )
+
+    # SVM polygons confirmed by a nearby YOLO polygon
+    svm_confirmed = svm_joined[svm_joined["_dist"].notna()].copy()
+
+    # Indices of YOLO polygons that were matched to at least one SVM polygon
+    matched_yolo_indices = set(svm_confirmed["yolo_idx"].dropna().astype(int))
+
+    svm_confirmed = svm_confirmed.drop(columns=["_dist", "yolo_idx", "index_right"],
+                                       errors="ignore")
+
+    print(f"SVM confirmed by YOLO: {len(svm_confirmed)} / {len(svm_p)}")
+
+    # ── Step 3: ALL YOLO polygons (not just orphans) ───────────────
+    yolo_all = yolo_p.copy()
+    yolo_all["conf_svm_norm"] = float("nan")
+    yolo_all["confidence"]    = yolo_all["conf_yolo"].round(6)
+    yolo_all["source"]        = "yolo"
+    print(f"YOLO polygons (all): {len(yolo_all)}")
+
+    # ── Step 4: assign fused confidence ───────────────────────────────────
+    def harmonic(a, b):
+        denom = a + b
+        return np.where(denom > 0, 2 * a * b / denom, 0.0)
+
+    svm_confirmed["confidence"] = harmonic(
+        svm_confirmed["conf_yolo"].fillna(0.0).values,
+        svm_confirmed["conf_svm_norm"].values,
+    ).round(6)
+    svm_confirmed["source"] = "svm+yolo"
+
+    # ── Step 5: concatenate & deduplicate on geometry ─────────────────────
+    # svm_confirmed polygons that overlap with YOLO will be deduplicated —
+    # the higher-confidence copy (usually svm+yolo harmonic) wins.
+    fused = pd.concat(
+        [svm_confirmed, yolo_all],
+        ignore_index=True,
+    )
+
+    fused = gpd.GeoDataFrame(fused, geometry="geometry", crs=utm)
+
+    before_dedup = len(fused)
+    fused["_geom_wkb"] = fused.geometry.apply(lambda g: g.wkb)
+    fused = (
+        fused.sort_values("confidence", ascending=False)
+             .drop_duplicates(subset="_geom_wkb")
+             .drop(columns="_geom_wkb")
+             .reset_index(drop=True)
+    )
+    print(f"Deduplicated: {before_dedup} → {len(fused)} polygons")
+
+    return fused.to_crs(yolo.crs)   # restore original CRS
+
+def merge_overlapping_polygons(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    gdf = gdf.reset_index(drop=True).copy()
+
+    idx_col = "_idx"
+    gdf[idx_col] = gdf.index
+
+    # "intersects" catches overlapping AND fully contained polygons.
+    # Exclude self-matches (same index).
+    pairs = gpd.sjoin(
+        gdf[[idx_col, "geometry"]],
+        gdf[[idx_col, "geometry"]].rename(columns={idx_col: "_idx_r"}),
+        how="inner",
+        predicate="intersects",
+    )
+    pairs = pairs[pairs[idx_col] < pairs["_idx_r"]]
+
+    parent = {i: i for i in gdf.index}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        parent[find(x)] = find(y)
+
+    for _, row in pairs.iterrows():
+        union(int(row[idx_col]), int(row["_idx_r"]))
+
+    groups: dict[int, list[int]] = {}
+    for i in gdf.index:
+        root = find(i)
+        groups.setdefault(root, []).append(i)
+
+    rows = []
+    merged_count = 0
+
+    for indices in groups.values():
+        subset = gdf.loc[indices]
+        best   = subset.loc[subset["confidence"].idxmax()].copy().drop(labels=[idx_col])
+
+        if len(indices) == 1:
+            rows.append(best)
+            continue
+
+        # Union of all polygons in the group → single merged polygon
+        merged_geom = subset.geometry.union_all()
+
+        best["geometry"] = merged_geom
+        best["source"]   = "merged_union"
+        merged_count    += 1
+        rows.append(best)
+
+    result = gpd.GeoDataFrame(rows, crs=gdf.crs).reset_index(drop=True)
+    print(f"Overlap merge: {len(gdf)} → {len(result)} polygons "
+          f"({merged_count} groups replaced by union)")
+    return result
+
+
 def run_pipeline(
-    yolo_path:     str,
-    svm_path:      str,
-    gt_path:       str,
-    buffer_m:      float = 2.0,
-    svm_norm:      NormalisationType  = NormalisationType.MIN_MAX,   # "minmax" | "sigmoid" | "rank"
-    yolo_weight:   float = 0.5,        # weight in weighted_sum
-    threshold:     float | None = None, # None → use Youden's J per strategy
-    out_dir:       str   = ".",
+    yolo_path: str,
+    svm_path:  str,
+    gt_path:   str,
+    buffer_m:  float = 2.0,
+    svm_norm:  NormalisationType = NormalisationType.MIN_MAX,
+    svm_min_confidence: float = 0.30,
+    out_dir:   str   = ".",
 ):
     print("─" * 55)
     print("Loading shapefiles …")
     yolo, svm, gt = load_shapefiles(yolo_path, svm_path, gt_path)
 
-    print("Spatial join …")
-    merged = spatial_join(yolo, svm, buffer_m=buffer_m)
-
-    print(f"Normalising SVM scores ({svm_norm}) …")
-    merged["conf_svm_norm"] = normalise_svm(merged["conf_svm"], method=svm_norm)
+    print("Building fused shapefile …")
+    fused = build_fused_shapefile(
+        yolo, svm,
+        buffer_m=buffer_m,
+        svm_norm_method=svm_norm,
+        svm_min_confidence=svm_min_confidence,
+    )
 
     print("Assigning ground-truth labels …")
-    y_true: pd.Series = assign_ground_truth(merged, gt, buffer_m=buffer_m)
-    n_pos  = y_true.sum()
-    n_neg  = len(y_true) - n_pos
+    y_true = assign_ground_truth(fused, gt, buffer_m=buffer_m)
+    n_pos, n_neg = y_true.sum(), (y_true == 0).sum()
     print(f"  Positives: {n_pos}  |  Negatives: {n_neg}")
 
-    strategies = [
-        "yolo_only",
-        "svm_only",
-        "weighted_sum",
-        "product",
-        "and_min",
-        "or_max",
-        "harmonic",
-    ]
+    # Evaluate at 50% threshold (tune as needed)
+    score = fused["confidence"]
+    thr   = optimal_threshold(y_true, score)
+    res   = evaluate(y_true, score, threshold=thr, label="svm_filtered_by_yolo")
+    print(f"\n  TP={res['TP']}  FP={res['FP']}  FN={res['FN']}  "
+          f"F1={res['F1']:.3f}  AUC={res['AUC']:.3f}")
 
-    all_scores  = {}
-    all_results = []
-
-    for strat in strategies:
-        score = fuse_scores(
-            merged,
-            strategy=strat,
-            yolo_weight=yolo_weight,
-        )
-
-        # Threshold selection
-        thr = threshold if threshold is not None else optimal_threshold(y_true, score)
-
-        results = evaluate(y_true, score, threshold=thr, label=strat)
-        all_results.append(results)
-        all_scores[strat] = score
-
-        print(
-            f"  {strat:<16}  thr={thr:.3f}  "
-            f"TP={results['TP']:4d}  FP={results['FP']:4d}  "
-            f"FN={results['FN']:4d}  F1={results['F1']:.3f}  "
-            f"AUC={results['AUC']:.3f}"
-        )
-
-    # Summary table
-    df_results = pd.DataFrame(all_results).set_index("strategy")
-    print("\n── Summary ──────────────────────────────────────")
-    print(df_results[["TP", "FP", "FN", "recall", "precision", "F1", "AUC"]].to_string())
-
-    # ROC curves
-    plot_roc_curves(y_true, all_scores, save_path=f"{out_dir}/roc_curves.png")
-
-    # Save best strategy (highest F1)
-    best = df_results["F1"].idxmax()
-    print(f"\nBest strategy by F1: {best}")
-    best_score = all_scores[best]
-    best_thr   = (threshold if threshold is not None
-                  else optimal_threshold(y_true, best_score))
-
-    shapefile_path = Path(out_dir) / "fused_best.shp"
-    save_fused(
-        merged, best_score, y_true, best_thr,
-        out_path=f"{out_dir}/fused_best.shp",   # ← .shp instead of .gpkg
+    # Save
+    out_path = f"{out_dir}/fused_best.shp"
+    fused["gt_label"]  = y_true
+    fused["predicted"] = (np.asarray(score) >= thr).astype(int)
+    fused["result"] = np.select(
+        [
+            (fused["predicted"] == 1) & (fused["gt_label"] == 1),
+            (fused["predicted"] == 1) & (fused["gt_label"] == 0),
+            (fused["predicted"] == 0) & (fused["gt_label"] == 1),
+            (fused["predicted"] == 0) & (fused["gt_label"] == 0),
+        ],
+        ["TP", "FP", "FN", "TN"],
+        default="UNKNOWN",
     )
-    return df_results, all_scores, y_true, shapefile_path
 
+    fused = merge_overlapping_polygons(fused)
+
+    fused.to_file(out_path, driver="ESRI Shapefile")
+    print(f"Saved → {out_path}")
+
+    return fused, y_true, out_path
 
 # ─────────────────────────────────────────────
 # USAGE
@@ -493,14 +617,13 @@ if __name__ == "__main__":
         out_path = Path.cwd() / arg.gt_path.stem
         out_path.mkdir(parents=True, exist_ok=True)
 
-        results, scores, y_true, saved_shapefile = run_pipeline(
+        fused, y_true, saved_shapefile = run_pipeline(
             yolo_path   = str(arg.ai_pred_path),
             svm_path    = str(arg.cv_pred_path),
             gt_path     = str(arg.gt_path),
             buffer_m    = 2.0,
             svm_norm    = NormalisationType.MIN_MAX,
-            yolo_weight = 0.5,
-            threshold   = None,
+            svm_min_confidence = 0.3,
             out_dir     = str(out_path),
         )
 
