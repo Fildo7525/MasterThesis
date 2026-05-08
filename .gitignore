@@ -66,3 +66,8 @@ runs/obb
 /QGIS_output_test
 /QGIS_output_test_0001
 /QGIS_test_small
+/OpenCV/classifiers/large_obb_test
+/OpenCV/classifiers/mid_obb_test
+/OpenCV/classifiers/roc_curves.png
+/OpenCV/classifiers/small_obb_test
+/OpenCV/classifiers/fused_best.gpkg
