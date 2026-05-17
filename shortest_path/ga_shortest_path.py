@@ -461,9 +461,10 @@ if __name__ == "__main__":
     random.seed(SEED)
     np.random.seed(SEED)
 
-    inp = Path.home() / "SDU/MasterThesis/OpenCV"
-    shapefiles = [ f for f in inp.rglob("*.shp") ]
-    for shapefile in shapefiles:
-        main(shapefile, str(shapefile).replace(".shp", "_output.shp"))
-        print()
+    # inp = Path.home() / "SDU/MasterThesis/OpenCV"
+    # shapefiles = [ f for f in inp.rglob("*.shp") ]
+    # for shapefile in shapefiles:
+    ai_shp = Path.home() / "Downloads/predictions_all_mosaics/small/yolo_small_shp.shp"
+    main(ai_shp, str(ai_shp).replace(".shp", "_ga_path.shp"))
+        # print()
 

@@ -423,15 +423,45 @@ if __name__ == "__main__":
     # results = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir)
 
     home = Path.home()
-    paths = [
-        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/big",
-        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/mid",
-        home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/small",
+    # paths = [
+    #     home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/big",
+    #     home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/mid",
+    #     home / "SDU/MasterThesis/OpenCV/output_NGRDI_mask/small",
+    # ]
+
+    gt = [
+        home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+        home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
     ]
 
-    for pth in paths:
-        results = ConfusionMatrix.fromFile(pth / "confusion_matrix.txt")
+    paths = [
+        home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_small",
+        home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid",
+        home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2",
+    ]
 
-        results.print()
-        results.plot(hold=True, save = pth / "confusion_matrix.png")
-        results.plot(normalised=True, save = pth / "confusion_matrix_normalised.png")
+    outputs = {
+        "TP": 0,
+        "FP": 0,
+        "FN": 0,
+        "TN": 0,
+    }
+
+    iou = 0.1
+    print(f"IOU = {iou}")
+    for g, pth in zip(gt, paths):
+        metrics = Metrics()
+        # results = ConfusionMatrix.fromFile(pth / "confusion_matrix.txt")
+
+        # results.print()
+        # results.plot(hold=True, save = pth / "confusion_matrix.png")
+        # results.plot(normalised=True, save = pth / "confusion_matrix_normalised.png")
+        print(f"\n========== {pth.stem} ==========")
+        cm = metrics.compute_from_shapefiles(g, pth, iou_threshold=iou)
+        cm.print()
+
+        outputs["TP"] += cm.tp
+        outputs["FP"] += cm.fp
+        outputs["TN"] += cm.tn
+        outputs["FN"] += cm.fn

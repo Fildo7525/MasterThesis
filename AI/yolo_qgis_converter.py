@@ -401,7 +401,10 @@ class YOLOShapefileConverter:
                 filtered_polygons.append(poly)
                 filtered_class_ids.append(class_ids[i])
                 filtered_class_labels.append(class_labels[i])
-                filtered_confidences.append(confidences[i])
+                try:
+                    filtered_confidences.append(confidences[i])
+                except:
+                    continue
 
         polygons = filtered_polygons
         class_ids = filtered_class_ids
@@ -413,7 +416,7 @@ class YOLOShapefileConverter:
             'class_id': class_ids,
             'class_name': class_labels,
             'geometry': polygons,
-            'confidence': confidences
+            'confidence': confidences if len(confidences) == len(polygons) else list(np.zeros_like(np.array(polygons)))
         }, crs=crs)
 
         # Save shapefile
@@ -804,9 +807,9 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    labels_dir = "/home/fildo/Downloads/predictions_all_mosaics/big/labels"
-    ref_tif = "/home/fildo/Downloads/predictions_all_mosaics/big/tiles"
-    pred_shp = "/home/fildo/Downloads/predictions_all_mosaics/big/yolo_big_shp.shp"
+    labels_dir = "/home/fildo/SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels"
+    ref_tif = "/home/fildo/SDU/MasterThesis/Orthomosaics/mid_2048_tiles/"
+    pred_shp = "/home/fildo/SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI/mid.shp"
 
     converter.labels_to_shapefile(
         labels_dir=labels_dir,

@@ -586,21 +586,35 @@ if __name__ == "__main__":
         Args(
             gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
             ai_pred_path = home / "Downloads/predictions_all_mosaics/small/yolo_small_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI/small.shp",
+            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_small_0058/labels_shapefile.shp",
         ),
         Args(
             gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
             ai_pred_path = home / "Downloads/predictions_all_mosaics/mid/yolo_mid_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI/mid.shp",
+            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
         ),
         Args(
             gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
             ai_pred_path = home / "Downloads/predictions_all_mosaics/big/yolo_big_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI/big.shp",
+            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
         )
     ]
 
-    outputs = {
+    outputs_fusion = {
+        "TP": 0,
+        "FP": 0,
+        "FN": 0,
+        "TN": 0,
+    }
+
+    outputs_ai = {
+        "TP": 0,
+        "FP": 0,
+        "FN": 0,
+        "TN": 0,
+    }
+
+    outputs_cv = {
         "TP": 0,
         "FP": 0,
         "FN": 0,
@@ -645,10 +659,20 @@ if __name__ == "__main__":
             iou_threshold     = 0.5,
         )
 
-        outputs["FN"] += cm.fn
-        outputs["FP"] += cm.fp
-        outputs["TP"] += cm.tp
-        outputs["TN"] += cm.tn
+        outputs_fusion["FN"] += cm.fn
+        outputs_fusion["FP"] += cm.fp
+        outputs_fusion["TP"] += cm.tp
+        outputs_fusion["TN"] += cm.tn
+
+        outputs_cv["FN"] += cm_cv.fn
+        outputs_cv["FP"] += cm_cv.fp
+        outputs_cv["TP"] += cm_cv.tp
+        outputs_cv["TN"] += cm_cv.tn
+
+        outputs_ai["FN"] += cm_ai.fn
+        outputs_ai["FP"] += cm_ai.fp
+        outputs_ai["TP"] += cm_ai.tp
+        outputs_ai["TN"] += cm_ai.tn
 
         print("\n============ AI Precision ============")
         cm_ai.print(save = out_path / "confusion_maatrix_ai.txt")
@@ -660,5 +684,20 @@ if __name__ == "__main__":
         cm.print(save = out_path / "confusion_maatrix.txt")
 
 
-    cm = ConfusionMatrix.fromDict(outputs)
-    cm.print()
+    print("\n\n============ ALL RESULTS ============")
+    print("\n============ CV RESULTS ============")
+
+    out_dir = Path.home() / "Downloads" / "weighted_fusion"
+
+    cm = ConfusionMatrix.fromDict(outputs_cv)
+    cm.print(save=out_dir / "cv.txt")
+
+    print("\n\n============ AI RESULTS ============")
+
+    cm = ConfusionMatrix.fromDict(outputs_ai)
+    cm.print(save=out_dir / "ai.txt")
+
+    print("\n\n============ FUSION RESULTS ============")
+    cm = ConfusionMatrix.fromDict(outputs_fusion)
+    cm.print(save=out_dir / "fusion.txt")
+

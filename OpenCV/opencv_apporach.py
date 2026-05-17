@@ -354,7 +354,7 @@ class OpenCVApproach:
         print("Labels saved to files in directory:", self.labels_dir.absolute())
         print("Predicted shapefile saved to:", pred_shp.absolute())
 
-        iou_threshold = 0.1
+        iou_threshold = 0.5
 
         print("Computing confusion matrix...")
         print(f"Ground truth shape: {args.ground_truth_shp}")
@@ -365,7 +365,6 @@ class OpenCVApproach:
         results: ConfusionMatrix = metrics.compute_from_shapefiles(
             gt_shp = args.ground_truth_shp,
             pred_shp = pred_shp,
-            reference_tif_dir = self.output / "tiles",
             iou_threshold=iou_threshold
         )
         # results: ConfusionMatrix = metrics.compute_from_shapefiles(gt_shp, pred_shp, reference_tif_dir, iou_threshold=iou_threshold)
@@ -386,14 +385,14 @@ if __name__ == "__main__":
     base_dir = home / "SDU/MasterThesis"
 
     orthomosaics: List[ApproachArgs] = [
-        ApproachArgs(
-            orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
-            reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
-            annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
-            ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
-            png_dir = base_dir / "Orthomosaics/NRN_small/pngs",
-            run_cdc = True,
-        ),
+        # ApproachArgs(
+        #     orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_small.tif",
+        #     reference_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5.png",
+        #     annotated_png = base_dir / "OpenCV/annotated_pngs/small/tile_2_5_annotated.png",
+        #     ground_truth_shp = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+        #     png_dir = base_dir / "Orthomosaics/NRN_small/pngs",
+        #     run_cdc = True,
+        # ),
         ApproachArgs(
             orthomosaic_path= base_dir / "OpenCV/BV_TF2_NRN_mid.tif",
             reference_png = base_dir / "OpenCV/annotated_pngs/mid/tile_15_9.png",

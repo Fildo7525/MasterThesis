@@ -61,7 +61,7 @@ PCA_VARIANCE = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_glcm_lbp"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_PATH_MASKS = OUTPUT_PATH / "masks"
@@ -291,11 +291,21 @@ class Pretrainer:
             vegetation_indices = vegetation_indices,
         )
 
+        # for band_name, features in results.items():
+        #     print(f"\n{band_name}:")
+        #     i = 0
+        #     for feat_name, value in features.items():
+        #         print(f"  {i} {feat_name}: {value:.4f}, {type(value)}")
+        #         i += 1
+
         values = []
         for _, feats in sorted(results.items()):
             if feats is not None:
                 for _, val in sorted(feats.items()):
-                    values.append(float(val))
+                    if type(val) in [np.float64, float]:
+                        values.append(float(val))
+                    elif type(val) is np.ndarray:
+                        values.extend(val.flatten().astype(float))
 
         return np.array(values) if values else None
 
@@ -427,19 +437,20 @@ def get_feature_names() -> list[str]:
 
 if __name__ == "__main__":
     home = Path.home()
+    base_dir = Path.home() / "SDU/MasterThesis"
 
     configs = [
         PretrainConfig(
             ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-            shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
+            shapefile_path = base_dir / "OpenCV/contour_adjusted_shapefiles/small/small_obb_test_contour_adjusted.shp",
         ),
         PretrainConfig(
             ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-            shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+            shapefile_path = base_dir / "OpenCV/contour_adjusted_shapefiles/mid/mid_obb_test_contour_adjusted.shp",
         ),
         PretrainConfig(
             ortho_path     = home / "SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-            shapefile_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+            shapefile_path = base_dir / "OpenCV/contour_adjusted_shapefiles/large/large_obb_test_contour_adjusted.shp",
         ),
     ]
 
@@ -468,6 +479,7 @@ if __name__ == "__main__":
 
     # Phase 4: diagnostics
     feature_names = get_feature_names()
+    print(feature_names)
 
     from run_diagnostics import plot_feature_matrix, plot_pca_importance, plot_pca_scatter
     plot_feature_matrix(trainer, OUTPUT_PATH / "feature_matrix.png",
