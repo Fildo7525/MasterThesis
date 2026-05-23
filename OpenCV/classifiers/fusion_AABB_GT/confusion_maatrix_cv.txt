@@ -1,0 +1,8 @@
+TP: 223
+FP: 1385
+FN: 54
+TN: 0
+Accuracy: 0.1342
+Precision: 0.1387
+F1-Score: 0.2366
+Recall: 0.8051

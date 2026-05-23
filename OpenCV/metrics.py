@@ -363,6 +363,8 @@ class Metrics:
         gt_gdf: GeoDataFrame = gpd.read_file(gt_shp)
         pred_gdf: GeoDataFrame = gpd.read_file(pred_shp)
 
+        print(pred_gdf)
+
         # Ensure both layers share the same coordinate reference system.
         if pred_gdf.crs != gt_gdf.crs:
             pred_gdf = pred_gdf.to_crs(gt_gdf.crs)

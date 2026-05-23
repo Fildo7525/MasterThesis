@@ -12,7 +12,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from AI.yolo_qgis_converter import YOLOShapefileConverter, YoloDatasetModel
 
-VI = Indices.NGRDI
+VI = Indices.RVI
 TIF = Path("/home/fildo/SDU/MasterThesis/Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif")
 OUTPUT = Path(f"/home/fildo/SDU/MasterThesis/Orthomosaics/{VI.name}")
 CONTINUE = False
@@ -30,7 +30,8 @@ THRESHOLDS = {
     # Indices.EXGR:  UINT16_MAX * 0.5009,
     # Indices.NGRDI: UINT16_MAX * 0.45,
     # Indices.OSAVI: UINT16_MAX * 0.6295,
-    Indices.MGRVI: UINT16_MAX * 0.5,
+    # Indices.MGRVI: UINT16_MAX * 0.5,
+    Indices.RVI:   UINT16_MAX * 0.5,
 }
 
 @dataclass
@@ -200,16 +201,16 @@ if __name__ == "__main__":
     base_dir = Path.home() / "SDU/MasterThesis"
 
     args = [
-        Args(
-            gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
-            orthomosaic = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-            output = base_dir / "vi_masks" / "small"
-        ),
-        Args(
-            gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-            orthomosaic = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
-            output = base_dir / "vi_masks" / "mid"
-        ),
+        # Args(
+        #     gt_shp = base_dir / "Orthomosaics/shapefiles/small/small_obb_test.shp",
+        #     orthomosaic = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+        #     output = base_dir / "vi_masks" / "small"
+        # ),
+        # Args(
+        #     gt_shp = base_dir / "Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        #     orthomosaic = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
+        #     output = base_dir / "vi_masks" / "mid"
+        # ),
         Args(
             gt_shp = base_dir / "Orthomosaics/shapefiles/large/large_obb_test.shp",
             orthomosaic = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",

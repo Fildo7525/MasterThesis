@@ -515,7 +515,7 @@ if __name__ == "__main__":
     # model_path = base_dir / "OpenCV/iforest_output_rgb/iforest_model.joblib"           # IsolationForest
     # model_path = base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib"                   # GMM
     model_paths = [
-        base_dir / "OpenCV/svm_output_glcm_lbp/svm_model.joblib",
+        base_dir / "OpenCV/svm_output_glcm_lbp_/svm_model.joblib",
         # base_dir / "OpenCV/gmm_output_rgb/gmm_model.joblib",
         # base_dir / "OpenCV/ifo_output_rgb/ifo_model.joblib",
     ]
@@ -525,18 +525,18 @@ if __name__ == "__main__":
         appr = NgrviApproach(model_path)
 
         orthomosaics: list[ApproachArgs] = [
-            ApproachArgs(
-                ground_truth_shp = base_dir / "OpenCV/contour_adjusted_shapefiles/small/small_obb_test_contour_adjusted.shp",
-                orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
-            ),
+            # ApproachArgs(
+            #     ground_truth_shp = base_dir / "OpenCV/contour_adjusted_shapefiles/small/small_obb_test_contour_adjusted.shp",
+            #     orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_small.tif",
+            # ),
             ApproachArgs(
                 ground_truth_shp = base_dir / "OpenCV/contour_adjusted_shapefiles/mid/mid_obb_test_contour_adjusted.shp",
                 orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_mid.tif",
             ),
-            ApproachArgs(
-                ground_truth_shp = base_dir / "OpenCV/contour_adjusted_shapefiles/large/large_obb_test_contour_adjusted.shp",
-                orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
-            ),
+            # ApproachArgs(
+            #     ground_truth_shp = base_dir / "OpenCV/contour_adjusted_shapefiles/large/large_obb_test_contour_adjusted.shp",
+            #     orthomosaic_path = base_dir / "Orthomosaics/20250827_Bjørnkjærvej_TestFlight_2_bigger_v2.tif",
+            # ),
         ]
 
         outputs = {

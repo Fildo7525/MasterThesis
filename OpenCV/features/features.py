@@ -22,13 +22,13 @@ class FeatureExtractor:
             'contrast', 'dissimilarity', 'homogeneity', 'ASM', 'energy',
             'correlation', 'mean', 'variance', 'std', 'entropy',
             # LBP features (derived from the normalised LBP histogram)
-            'lbp_mean', 'lbp_var', 'lbp_energy', 'lbp_entropy',
+            # 'lbp_mean', 'lbp_var', 'lbp_energy', 'lbp_entropy',
         ]
 
     def __calculate_lbp_features(
         self,
         band_data: np.ndarray,
-        radius: int = 1,
+        radius: int = 3,
         n_points: int = 8,
         method: str = 'uniform',
         mask: np.ndarray | None = None,
@@ -79,13 +79,13 @@ class FeatureExtractor:
 
         # --- compute LBP image ---
         lbp_image = local_binary_pattern(band_data, n_points, radius, method=method)
-        cv.imshow("lbp_image", lbp_image)
+        # cv.imshow("lbp_image", lbp_image)
 
         # --- select pixels (masked or all) ---
         if mask is not None:
             bool_mask = mask.astype(bool)
             bitwise_selected = cv.bitwise_and(lbp_image, lbp_image, mask=mask.astype(np.uint8))
-            cv.imshow("pixels",bitwise_selected)
+            # cv.imshow("pixels",bitwise_selected)
 
             if not np.any(bool_mask):
                 print("Warning: LBP mask contains no valid pixels. Skipping.")
@@ -96,11 +96,11 @@ class FeatureExtractor:
 
         # return pixels
 
-        key = cv.waitKey(0)
-        cv.destroyAllWindows()
+        # key = cv.waitKey(0)
+        # cv.destroyAllWindows()
 
-        if key == ord('q'):
-            exit(0)
+        # if key == ord('q'):
+        #     exit(0)
 
         # --- build a normalised histogram over LBP codes ---
         # For 'uniform' method the number of bins is n_points + 2
@@ -250,7 +250,7 @@ class FeatureExtractor:
             mask: np.ndarray | None = None,
             rectangle: bool = True,
             vegetation_indices: List[Indices] | None = None,
-            lbp_radius: int = 1,
+            lbp_radius: int = 3,
             lbp_n_points: int = 8,
             lbp_method: str = 'uniform',
     ) -> dict[str, dict[str, float] | None]:
@@ -272,10 +272,11 @@ class FeatureExtractor:
                     band_data = src[band_idx - 1]  # Convert to 0-based
 
                 glcm_feats = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
-                lbp_feats  = self.__calculate_lbp_features(
-                    band_data, radius=lbp_radius, n_points=lbp_n_points,
-                    method=lbp_method, mask=mask,
-                )
+                lbp_feats  =  None
+                # lbp_feats  = self.__calculate_lbp_features(
+                #     band_data, radius=lbp_radius, n_points=lbp_n_points,
+                #     method=lbp_method, mask=mask,
+                # )
                 # Merge: None stays None if both fail; otherwise combine what we have
                 if glcm_feats is None and lbp_feats is None:
                     results[f'band_{band_idx}'] = None
@@ -287,10 +288,11 @@ class FeatureExtractor:
                 band_data = compute_index(veg_idx.name, src)
 
                 glcm_feats = self.__calculate_glcm_features(band_data, mask=mask, rectangle=rectangle)
-                lbp_feats  = self.__calculate_lbp_features(
-                    band_data, radius=lbp_radius, n_points=lbp_n_points,
-                    method=lbp_method, mask=mask,
-                )
+                lbp_feats  = None
+                # lbp_feats  = self.__calculate_lbp_features(
+                #     band_data, radius=lbp_radius, n_points=lbp_n_points,
+                #     method=lbp_method, mask=mask,
+                # )
                 if glcm_feats is None and lbp_feats is None:
                     results[f'veg_{veg_idx}'] = None
                 else:

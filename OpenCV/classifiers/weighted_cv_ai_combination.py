@@ -584,20 +584,20 @@ if __name__ == "__main__":
     home = Path.home()
     args = [
         Args(
-            gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/small/small_obb_test.shp",
-            ai_pred_path = home / "Downloads/predictions_all_mosaics/small/yolo_small_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_small_0058/labels_shapefile.shp",
+            gt_path = home / "Downloads/for_filip/shapes/GT/fusion_AABB_GT.shp",
+            ai_pred_path = home / "Downloads/Pred/fusion_shape_pred.shp",
+            cv_pred_path = home / "Downloads/for_filip/shapes/CV/svm_pretrained.shp",
         ),
-        Args(
-            gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
-            ai_pred_path = home / "Downloads/predictions_all_mosaics/mid/yolo_mid_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
-        ),
-        Args(
-            gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
-            ai_pred_path = home / "Downloads/predictions_all_mosaics/big/yolo_big_shp.shp",
-            cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
-        )
+        # Args(
+        #     gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/mid/mid_obb_test.shp",
+        #     ai_pred_path = home / "Downloads/predictions_all_mosaics/mid/yolo_mid_shp.shp",
+        #     cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels_shapefile.shp",
+        # ),
+        # Args(
+        #     gt_path = home / "SDU/MasterThesis/Orthomosaics/shapefiles/large/large_obb_test.shp",
+        #     ai_pred_path = home / "Downloads/predictions_all_mosaics/big/yolo_big_shp.shp",
+        #     cv_pred_path = home / "SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_bigger_v2/labels_shapefile.shp",
+        # )
     ]
 
     outputs_fusion = {

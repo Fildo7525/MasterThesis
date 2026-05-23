@@ -61,7 +61,7 @@ PCA_VARIANCE = 0.95    # fraction of variance to retain after PCA
 
 UINT16_MAX = 65_535
 
-OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_glcm_lbp"
+OUTPUT_PATH = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb"
 OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_PATH_MASKS = OUTPUT_PATH / "masks"
@@ -71,9 +71,9 @@ CONTINUE = True
 SILENT = False
 INDEX = 0
 
-BANDS_TO_USE   = None # [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
+BANDS_TO_USE   = [Bands.REDEDGE, Bands.NIR] # [Bands.EXTEND_RED, Bands.NIR]# [Bands.EXTEND_RED, Bands.NIR]
 # INDICES_TO_USE = [Indices.CIRE, Indices.EVI, Indices.MGRVI, Indices.NDVI, Indices.NGRDI, Indices.OSAVI, Indices.SAVI]
-INDICES_TO_USE = [Indices.EXGR, Indices.NDRE, Indices.MGRVI, Indices.NGRDI, Indices.NGRVI, Indices.RVI]
+INDICES_TO_USE = [Indices.NGRDI]
 
 # ---------------------------------------------------------------------------
 # Detector wrapper
@@ -468,7 +468,7 @@ if __name__ == "__main__":
         trainer.train(
             ortho_path     = cfg.ortho_path,
             shapefile_path = cfg.shapefile_path,
-            limit          = 0.8,
+            limit          = 1,
         )
 
     # Phase 2: fit once on the full combined matrix
