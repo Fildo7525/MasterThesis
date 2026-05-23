@@ -150,7 +150,8 @@ def split_geotiff(input_tif: Path,
         A function to process each window of the image. It should accept the window data and the tile indices (i, j) and return the processed window data. Default is a no-op function.
     """
     # Make sure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
+    # os.makedirs(output_dir, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Splitting {input_tif} into tiles of size {tile_size}x{tile_size} px with {overlap} px overlap...")
 

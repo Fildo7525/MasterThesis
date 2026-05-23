@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 YOLOv5 <-> Shapefile Converter for Georeferenced Orthomosaics
@@ -11,7 +12,7 @@ from shapely.geometry.base import BaseGeometry
 from enum import IntEnum
 from pathlib import Path
 from shapely.affinity import rotate
-from shapely.geometry import Polygon, box, Point
+from shapely.geometry import Polygon, box
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from typing import List, Optional
@@ -23,6 +24,8 @@ import numpy as np
 class YoloDatasetModel(IntEnum):
     OBB = 0
     SEGMENTATION = 1
+    OBB_WITH_CONF = 2
+    SEGMENTATION_WITH_CONF = 3
 
 
 class YoloConfidenceMerging(IntEnum):
@@ -201,7 +204,8 @@ class YOLOShapefileConverter:
                           merge_intersecting: bool = True,
                           overlap_threshold: float = 0.1,
                           min_area: float = 0.003,
-                          max_area: float = 0.41):
+                          max_area: float = 0.41,
+                          shapefile: gpd.GeoDataFrame | None = None):
         """
         Convert YOLOv5 annotations to shapefile using reference TIF properties
 
@@ -219,6 +223,7 @@ class YOLOShapefileConverter:
         polygons = []
         class_ids = []
         class_labels = []
+        confidences = []
 
         # Validate paths
         labels_path = Path(yolo_label_path)
@@ -241,10 +246,10 @@ class YOLOShapefileConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load existing shapefile if it exists
-        existing_gdf = None
-        if output_path.exists():
+        self.existing_gdf = shapefile
+        if output_path.exists() and self.existing_gdf is None:
             try:
-                existing_gdf = gpd.read_file(output_shapefile)
+                self.existing_gdf = gpd.read_file(output_shapefile)
             except Exception as e:
                 print(f"Warning: Could not read existing shapefile: {e}")
 
@@ -255,8 +260,12 @@ class YOLOShapefileConverter:
                 parts = line.strip().split()
                 if len(parts) == 5:
                     model = YoloDatasetModel.OBB
+                elif len(parts) == 6:
+                    model = YoloDatasetModel.OBB_WITH_CONF
                 elif len(parts) == 9:
                     model = YoloDatasetModel.SEGMENTATION
+                elif len(parts) == 10:
+                    model = YoloDatasetModel.SEGMENTATION_WITH_CONF
                 else:
                     raise ValueError(f"Invalid YOLO annotation format: {line.strip()}")
 
@@ -270,12 +279,20 @@ class YOLOShapefileConverter:
                 y_bottom_right: float = 0.0
                 x_bottom_left: float = 0.0
                 y_bottom_left: float = 0.0
+                confidence: float = 0.0
 
-                if model == YoloDatasetModel.OBB and len(parts) == 5:
-                    x_center = float(parts[1]) * width
-                    y_center = float(parts[2]) * height
-                    width_box = float(parts[3]) * width
-                    height_box = float(parts[4]) * height
+                if model in [YoloDatasetModel.OBB, YoloDatasetModel.OBB_WITH_CONF]:
+                    if model == YoloDatasetModel.OBB:
+                        x_center = float(parts[1]) * width
+                        y_center = float(parts[2]) * height
+                        width_box = float(parts[3]) * width
+                        height_box = float(parts[4]) * height
+                    else:
+                        confidence = float(parts[1])
+                        x_center = float(parts[2]) * width
+                        y_center = float(parts[3]) * height
+                        width_box = float(parts[4]) * width
+                        height_box = float(parts[5]) * height
 
                     # Calculate corners of the bounding box
                     x_top_left = x_center - width_box / 2
@@ -287,7 +304,7 @@ class YOLOShapefileConverter:
                     x_bottom_left = x_center - width_box / 2
                     y_bottom_left = y_center + height_box / 2
 
-                if model == YoloDatasetModel.SEGMENTATION and len(parts) == 9:
+                elif model == YoloDatasetModel.SEGMENTATION:
                     x_top_left = float(parts[1]) * width
                     y_top_left = float(parts[2]) * height
                     x_top_right = float(parts[3]) * width
@@ -296,6 +313,17 @@ class YOLOShapefileConverter:
                     y_bottom_right = float(parts[6]) * height
                     x_bottom_left = float(parts[7]) * width
                     y_bottom_left = float(parts[8]) * height
+
+                elif model == YoloDatasetModel.SEGMENTATION_WITH_CONF:
+                    confidence = float(parts[1])
+                    x_top_left = float(parts[2]) * width
+                    y_top_left = float(parts[3]) * height
+                    x_top_right = float(parts[4]) * width
+                    y_top_right = float(parts[5]) * height
+                    x_bottom_right = float(parts[6]) * width
+                    y_bottom_right = float(parts[7]) * height
+                    x_bottom_left = float(parts[8]) * width
+                    y_bottom_left = float(parts[9]) * height
 
                 # Transform 4 corners to georeferenced coordinates
                 x1_geo, y1_geo = transform * (x_top_left, y_top_left)
@@ -313,6 +341,7 @@ class YOLOShapefileConverter:
 
                 polygons.append(poly)
                 class_ids.append(class_id)
+                confidences.append(confidence)
 
                 if class_names and class_id < len(class_names):
                     class_labels.append(class_names[class_id])
@@ -324,26 +353,37 @@ class YOLOShapefileConverter:
 
         # Merge intersecting polygons if requested
         if merge_intersecting:
-            polygons, class_ids, class_labels, _ = self.merge_intersecting_polygons(
-                polygons, class_ids, class_labels, overlap_threshold = overlap_threshold
+            confs = None if all(c == 0.0 for c in confidences) else confidences
+            polygons, class_ids, class_labels, confidences = self.merge_intersecting_polygons(
+                polygons, class_ids, class_labels, class_confidences=confs, overlap_threshold = overlap_threshold
             )
 
+            if confs is not None:
+                confidences = confs
+
         # Merge with existing shapefile if it exists
-        if existing_gdf is not None and len(existing_gdf) > 0:
+        if self.existing_gdf is not None and len(self.existing_gdf) > 0:
             # Combine new polygons with existing ones
-            all_polygons = list(existing_gdf.geometry) + polygons
-            all_class_ids = list(existing_gdf['class_id']) + class_ids
-            all_class_labels = list(existing_gdf['class_name']) + class_labels
+            all_polygons = list(self.existing_gdf.geometry) + polygons
+            all_class_ids = list(self.existing_gdf['class_id']) + class_ids
+            all_class_labels = list(self.existing_gdf['class_name']) + class_labels
+            all_confidences = list(self.existing_gdf['confidence']) + confidences
 
             # Merge all intersecting polygons
             if merge_intersecting:
-                polygons, class_ids, class_labels, _ = self.merge_intersecting_polygons(
-                    all_polygons, all_class_ids, all_class_labels, overlap_threshold = overlap_threshold
+                confs = None if all(c == 0.0 for c in confidences) else all_confidences
+                polygons, class_ids, class_labels, confs = self.merge_intersecting_polygons(
+                    all_polygons, all_class_ids, all_class_labels, class_confidences=confs, overlap_threshold = overlap_threshold
                 )
+
+                if confs is not None:
+                    confidences = confs
+
             else:
                 polygons = all_polygons
                 class_ids = all_class_ids
                 class_labels = all_class_labels
+                confidences = all_confidences
 
         if len(polygons) == 0:
             return None
@@ -352,6 +392,7 @@ class YOLOShapefileConverter:
         filtered_polygons = []
         filtered_class_ids = []
         filtered_class_labels = []
+        filtered_confidences = []
 
         for i, poly in enumerate(polygons):
             if poly.area < min_area or poly.area > max_area:
@@ -361,16 +402,22 @@ class YOLOShapefileConverter:
                 filtered_polygons.append(poly)
                 filtered_class_ids.append(class_ids[i])
                 filtered_class_labels.append(class_labels[i])
+                try:
+                    filtered_confidences.append(confidences[i])
+                except:
+                    continue
 
         polygons = filtered_polygons
         class_ids = filtered_class_ids
         class_labels = filtered_class_labels
+        confidences = filtered_confidences
 
         # Create GeoDataFrame
         gdf = gpd.GeoDataFrame({
             'class_id': class_ids,
             'class_name': class_labels,
-            'geometry': polygons
+            'geometry': polygons,
+            'confidence': confidences if len(confidences) == len(polygons) else list(np.zeros_like(np.array(polygons)))
         }, crs=crs)
 
         # Save shapefile
@@ -480,11 +527,14 @@ class YOLOShapefileConverter:
                 inv_transform = ~transform
 
                 # Get class ID
-                class_id = 0 #int(row.get('class_id', 0))
+                class_id = int(row.get('class_id', 0) or 0)
+
+                # Get geometry confidence
+                confidence = float(row.get('confidence', 0.0) or 0.0)
 
                 arr = []
 
-                if database_model == YoloDatasetModel.SEGMENTATION:
+                if database_model in [YoloDatasetModel.SEGMENTATION, YoloDatasetModel.SEGMENTATION_WITH_CONF]:
                     # If the image is rotated, we need to rotate the shapes to the same angle before converting to pixel
                     # coordinates
                     if angle != 0:
@@ -533,15 +583,15 @@ class YOLOShapefileConverter:
 
                     # Shapely orders elements couter-clockwise but YOLO expects them in clockwise order, so we need to reorder the coordinates
                     order = [0, 1, 6, 7, 4, 5, 2, 3]
-                    arr = [pixel_coords[i] for i in order]
+                    arr = [confidence] + [pixel_coords[i] for i in order]
 
-                    if len(arr) != 8:
+                    if len(arr) < 8:
                         # print(f"Warning: Skipping annotation with insufficient vertices ({len(coords)}) for segmentation.")
                         continue
 
                     # print(f"Polygon with {len(coords)} vertices converted to {len(arr)//2} normalized coordinates")
 
-                elif database_model == YoloDatasetModel.OBB:
+                elif database_model in [YoloDatasetModel.OBB, YoloDatasetModel.OBB_WITH_CONF]:
                     # For OBB, use the bounding box of the clipped geometry
                     minx, miny, maxx, maxy = clipped.bounds
 
@@ -569,11 +619,16 @@ class YOLOShapefileConverter:
                     box_width /= width
                     box_height /= height
 
-                    arr = [x_center, y_center, box_width, box_height, angle]
+                    arr = [confidence, x_center, y_center, box_width, box_height, angle]
 
                 # Skip if any coordinate is out of bounds
                 # For OBB, check only the first 4 values (center and dimensions), angle can be any value
-                array = arr[:4] if database_model == YoloDatasetModel.OBB else arr
+                array = []
+                if database_model in [YoloDatasetModel.OBB, YoloDatasetModel.OBB_WITH_CONF]:
+                    array = arr[1:5]
+                else:
+                    array = arr[1:]
+
                 if not all(0.0 <= v <= 1.0 for v in array):
                     # print(f"Skipping annotation with out-of-bounds coordinates: {arr}")
                     continue
@@ -582,6 +637,7 @@ class YOLOShapefileConverter:
                 f.write(f"{class_id} {coords}\n")
                 annotations.append({
                     'class_id': class_id,
+                    'confidence': confidence,
                     'coords': coords,
                     'width': width,
                     'height': height
@@ -637,6 +693,7 @@ class YOLOShapefileConverter:
             return None
 
         processed_count = 0
+        shapefile: gpd.GeoDataFrame|None = None
         for label_file in tqdm(label_files, total=len(label_files), desc="Processing label files"):
 
             # Corresponding TIF file
@@ -647,15 +704,16 @@ class YOLOShapefileConverter:
 
             # print(f"Processing label file {index + 1}/{len(label_files)}: {label_file}")
             # try:
-            self.label_to_shapefile(
+            shapefile = self.label_to_shapefile(
                 yolo_label_path=label_file,
                 reference_tif_file=tif_file,
                 output_shapefile=output_shapefile,
-                save=True,
+                save=False,
                 merge_intersecting=merge_intersecting,
                 overlap_threshold=overlap_threshold,
                 min_area=min_area,
-                max_area=max_area
+                max_area=max_area,
+                shapefile=shapefile
             )
             processed_count += 1
 
@@ -663,6 +721,9 @@ class YOLOShapefileConverter:
             #     print(f"Error processing {label_file}: {e}")
             #     continue
 
+        assert shapefile is not None, "Shapefile is still none after label_to_shapefile run"
+
+        shapefile.to_file(output_shapefile)
         print(f"Processed {processed_count} label files")
         print(f"Saved combined shapefile to {output_shapefile}")
         return None
@@ -747,31 +808,30 @@ if __name__ == "__main__":
     #     max_area=0.41
     # )
 
-    # labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/labels"
-    # ref_tif = "/home/samuel/test/MasterThesis/Orthomosaics/large/original/original/processed_output/image_tiles"
-    # pred_shp = "/home/samuel/Downloads/large_obb_test.shp"
+    labels_dir = "/home/fildo/SDU/MasterThesis/OpenCV/classifiers/output_20250827_Bjørnkjærvej_TestFlight_2_mid/labels"
+    ref_tif = "/home/fildo/SDU/MasterThesis/Orthomosaics/mid_2048_tiles/"
+    pred_shp = "/home/fildo/SDU/MasterThesis/OpenCV/svm_output_chosen_vi_base_NGRVI/mid.shp"
 
-    # converter.labels_to_shapefile(
-    #     labels_dir=labels_dir,
-    #     reference_tif_dir=ref_tif,
-    #     output_shapefile=pred_shp,
-    #     merge_intersecting=True,  # Enable merging of intersecting boxes
-    #     overlap_threshold=0.1,
-    #     min_area=0.004,
-    #     max_area=0.41
-
-    # )
-
-    shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"
-    reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
-    output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/labels_new"
-
-    results = converter.shapefile_to_yolo_cutouts(
-        shapefile_path = shapefile_path,
-        cutouts_dir = reference_tif_dir,
-        output_labels_dir = output_labels_dir,
-        database_model=YoloDatasetModel.SEGMENTATION
+    converter.labels_to_shapefile(
+        labels_dir=labels_dir,
+        reference_tif_dir=ref_tif,
+        output_shapefile=pred_shp,
+        merge_intersecting=True,  # Enable merging of intersecting boxes
+        overlap_threshold=0.1,
+        min_area=0.004,
+        max_area=0.41
     )
+
+    # shapefile_path = "/home/samuel/Downloads/small_obb_test.shp"
+    # reference_tif_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/processed_output/image_tiles"
+    # output_labels_dir = "/home/samuel/test/MasterThesis/Orthomosaics/small/translated_rotated/translated_500x_500y_rotated_45/labels_new"
+
+    # results = converter.shapefile_to_yolo_cutouts(
+    #     shapefile_path = shapefile_path,
+    #     cutouts_dir = reference_tif_dir,
+    #     output_labels_dir = output_labels_dir,
+    #     database_model=YoloDatasetModel.SEGMENTATION
+    # )
 
     # for res in results:
         # print(f"Generated {res['num_annotations']} annotations for {res['tif_file']} -> {res['label_file']}")
