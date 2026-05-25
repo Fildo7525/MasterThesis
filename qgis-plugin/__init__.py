@@ -4,20 +4,12 @@
 # Licensed under the terms of GNU GPL 2
 #-----------------------------------------------------------
 
-from qgis.gui import QgsFileWidget
-from enum import StrEnum
-from PyQt5.QtWidgets import QApplication, QButtonGroup, QRadioButton, QPushButton
-from PyQt5.QtWidgets import QCheckBox
 import sys
-import os
 from pathlib import Path
 from dataclasses import dataclass
 from .nrn_generator import create_nrn_image_from_orthomosaic
 
 sys.path.append(str(Path(__file__).resolve().parent / ".venv/lib/python3.12/site-packages"))
-# sys.path.append(str(Path("/usr/lib/python3/dist-packages")))
-# sys.path.append(str(Path(__file__).resolve().parents[1] / "OpenCV"))
-
 
 from PyQt5.QtWidgets import (
     QAction,
@@ -25,10 +17,12 @@ from PyQt5.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QLabel,
-    QDialogButtonBox
+    QDialogButtonBox,
+    QCheckBox,
+    QRadioButton,
 )
 
-from qgis.gui import QgsMapLayerComboBox
+from qgis.gui import QgsMapLayerComboBox, QgsFileWidget
 from qgis.core import (
     Qgis,
     QgsMapLayerProxyModel,
@@ -80,8 +74,8 @@ class ProcessOrthomosaicTask(QgsTask):
         self.prediction_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # tif_dir, nrn_dir = create_nrn_image_from_orthomosaic(self.args.orthomosaic_dir, self.args.output_dir, global_normalize=True)
-            tif_dir, nrn_dir = Path.home() / "SDU/MasterThesis/Orthomosaics/qgis_yolo_out/image_tiles", Path.home() / "SDU/MasterThesis/Orthomosaics/qgis_yolo_out/temp_nrn_pngs/"
+            tif_dir, nrn_dir = create_nrn_image_from_orthomosaic(self.args.orthomosaic_dir, self.args.output_dir, global_normalize=True)
+            # tif_dir, nrn_dir = Path.home() / "SDU/MasterThesis/Orthomosaics/qgis_yolo_out/image_tiles", Path.home() / "SDU/MasterThesis/Orthomosaics/qgis_yolo_out/temp_nrn_pngs/"
 
             self.tif_tiles_dir = tif_dir
             self.nrn_tiles_dir = nrn_dir
@@ -290,23 +284,4 @@ class MinimalPlugin:
             task = ProcessOrthomosaicTask(self.model, args)
             self._task = task
             QgsApplication.taskManager().addTask(task)
-
-
-            # if approach == Approaches.OPENCV:
-            #     model_pth = Path.home() / "SDU/MasterThesis/OpenCV/svm_output_nrn_rgb/pretrain_output_model.joblib"
-            #     QgsMessageLog.logMessage(
-            #         f"Model path: {model_pth}\nModel exists: {model_pth.exists()}\nJoblib version: {joblib.__version__}")
-            #     model = NgrviApproach(model_pth, Path(output_dir))
-
-            #     args = ApproachArgs(
-            #         ground_truth_shp = Path(str(vector.source())) if vector else None,
-            #         orthomosaic_path = Path(str(raster.source())),
-            #         rename_existing_output_dir = False
-            #     )
-
-            #     QgsMessageLog.logMessage(f"args.ground_truth_shp: {args.ground_truth_shp}\nargs.orthomosaic_path: {args.orthomosaic_path}")
-
-            #     task = ProcessOrthomosaicTask(model, args)
-            #     self._task = task
-            #     QgsApplication.taskManager().addTask(task)
 
