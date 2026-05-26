@@ -8,45 +8,21 @@
 
 ## What to find where
 
-> ### **NOTE:** This project contains a lot of pictures. So that for the pull requests these don't make it slow, the pictures are stored in a tar files in the issues. If the tar file is updated localy, update the issue with the new tar file.
+The project consists of 3 main parts
+| Approach | branch |
+| --- | --- |
+| Classical computer vision | master |
+| Deep learning |  |
+| Fusion | master |
 
-<details>
-
-<summary>Field 1</summary>
-
-**Field address:** Bjørnkjærvej 13 <br>
-**Farmer:** Nikolai, Gindeskovgård 8, 7400 Herning, Denmark <br>
-**Phone:** +45 25 77 91 70 <br>
-![Filed_1](https://private-user-images.githubusercontent.com/59179935/481626879-99c6f5a9-e383-4c95-a99d-1b2aa98f63ea.jpg?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTYxMjY5ODcsIm5iZiI6MTc1NjEyNjY4NywicGF0aCI6Ii81OTE3OTkzNS80ODE2MjY4NzktOTljNmY1YTktZTM4My00Yzk1LWE5OWQtMWIyYWE5OGY2M2VhLmpwZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA4MjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwODI1VDEyNTgwN1omWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTNmMzI5MDk5MjhmNzc2ODc1ZGQxY2NjN2E0YzcwMjRlMjdkMDlhNmUzMmQ4NmI0YWQ5NjRmNGJlOTg1MTk3YTcmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.3v5oCsddC5K8g43yDkzg5d7Z2yU45SKxhTiRfxFnwLI)
-</details>
-
-<details>
-
-<summary>Field 2</summary>
-
-**Field address:** Rotvigvej 2 <br>
-**Farmer:** Jens Riis, Rotvigvej 5, 7490 Aulum <br>
-**Phone:** +45 40 27 92 69 <br>
-![Filed_2](https://private-user-images.githubusercontent.com/59179935/481626911-5df111fb-2cc1-4a7e-b099-b24e2c4bea0f.jpg?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTYxMjY5ODcsIm5iZiI6MTc1NjEyNjY4NywicGF0aCI6Ii81OTE3OTkzNS80ODE2MjY5MTEtNWRmMTExZmItMmNjMS00YTdlLWIwOTktYjI0ZTJjNGJlYTBmLmpwZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA4MjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwODI1VDEyNTgwN1omWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPWY1MTg5NDFkODA3NmRkNzc1ZjMxMzY4ODRmN2EyMTdiM2FjMmMwOWZiNTEyODIwNzIxMzUzMTA2MjIwYWUwZGYmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.c3WthtY708JhfApguwdxuCOdClcLFWWQwQVuXByUPbk)
-</details>
-
-<details>
-
-<summary>Field 3</summary>
-
-**Field address:** Tjørring Hovedgade 95 <br>
-**Farmer:** Torsten Troelsen, Gødstrupvej 25, 7400 Herning <br>
-**Phone:** +45 40 53 75 89 <br>
-![Filed_3](https://private-user-images.githubusercontent.com/59179935/481627046-227e614c-c708-418c-8a37-66c21e0e7a20.jpg?jwt=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3NTYxMjcyMjgsIm5iZiI6MTc1NjEyNjkyOCwicGF0aCI6Ii81OTE3OTkzNS80ODE2MjcwNDYtMjI3ZTYxNGMtYzcwOC00MThjLThhMzctNjZjMjFlMGU3YTIwLmpwZz9YLUFtei1BbGdvcml0aG09QVdTNC1ITUFDLVNIQTI1NiZYLUFtei1DcmVkZW50aWFsPUFLSUFWQ09EWUxTQTUzUFFLNFpBJTJGMjAyNTA4MjUlMkZ1cy1lYXN0LTElMkZzMyUyRmF3czRfcmVxdWVzdCZYLUFtei1EYXRlPTIwMjUwODI1VDEzMDIwOFomWC1BbXotRXhwaXJlcz0zMDAmWC1BbXotU2lnbmF0dXJlPTgxZDI3YjUyYWM1NWIwNTY1MDRhOTc3Mjg1NzRiODEwYzNlYmZmMjRiOWRiNDQ1MDY0MjgyOTgxZjBiZWRhOWMmWC1BbXotU2lnbmVkSGVhZGVycz1ob3N0In0.tRwq_ejhZHdied9CLoMkluagG9lWDjX_2opvAs1sIp4)
-</details>
 
 ## Used equipment
 
 DJI Mavic 3MEU drone [specs](https://ag.dji.com/mavic-3-m/specs)
 
 Cameras:
- - RGB 20MP
- - Multispectral:
+- RGB 20MP
+- Multispectral:
     - R (Red) 5MP
     - RE (Reditch) 5MP
     - NIR (Near Infrared) 5MP
@@ -55,15 +31,38 @@ Cameras:
 
 ## Project Overview
 
-The project focuses on the development of the system to find and locate the volunteer potato plants
-on the field. The identification will be done using classical approach (OpenCV) and with Deep
-Neural Networks (DNN). Both appraches will do the localisation on orthomosaics and separate
-pictures (simulating real time apprach) created from the aforementioned drone.
+Volunteer potatoes are plants that emerge from tubers left in the soil after a previous harvest and are considered weeds in subsequent crop rotations. They compete with cultivated crops for nutrients, water, and sunlight and can harbour pathogens, such as Phytophthora infestans, which causes potato late blight, posing a significant risk to both yield and plant health. Early and reliable detection is therefore essential. This thesis investigates the use of classical computer vision and deep learning approaches for detecting volunteer potatoes in UAV-acquired imagery and compares their performance across RGB and multispectral image types.
+A dataset of labelled RGB and multispectral UAV images was collected over three fields on a single farm during one growing season. The classical pipeline combined vegetation index segmentation with Support Vector Machine, Gaussian Mixture Model and Isolation Forest classification, while the deep learning pipeline evaluated four different architectures: YOLO12, YOLO26, RT-DETR, and DINO. A fusion of the two paradigms was also implemented and evaluated. Additionally, a genetic algorithm was used to compute the shortest removal route through the detected plants, and a QGIS plugin was developed to provide a user-friendly interface for the entire pipeline.
+Across both the classical computer vision and deep learning pipelines, spectral input quality was the dominant driver of performance. Replacing RGB with a multispectral composite of the near-infrared band, the multispectral red band, and the NGRDI vegetation index improved deep learning F1 score from 0.851 to 0.884, recall from 0.826 to 0.892 and mAP@0.5 from 0.832 to 0.888. The best classical configuration, an SVM trained on six vegetation indices from extended multispectral bands, achieved an F1 score of 0.233 and a recall of 0.904. The best deep learning configuration, YOLO26s trained on globally normalised multispectral tiles, achieved an F1 score of 0.886 and a recall of 0.887. Fusion of the two approaches did not improve upon the standalone deep learning model.
+The findings demonstrate that volunteer potato detection from multispectral UAV imagery is achievable with high reliability using deep learning, and that multispectral imaging is a necessary, not optional, component of both classical computer vision and deep learning pipelines. Classical methods remain a viable fallback in deployment scenarios where labelled training data or GPU inference are unavailable.
 
-The approaches will be compared in terms of (these are not final): accuracy, speed, robustness to
-different light conditions, ease of use, computational requirements.
 
-As a separate task, a QGIS plugin will be developed to visualise the results of the localisation on
-the orthomosaic. The plugin will have the pictures/orthomosaic as an input and will generate
-a vector layer with the locations of the volunteer plants. Additionaly, the plugin will be able to
-generate the best trajectory between the points, so that the path is as short as possible.
+# Classical Computer Vision
+
+To pretrain the classifiers a separate pretraining scripts need to be run:
+- **Isolation Forest** - ./OpenCV/classifiers/isolation_forest_pretrain.py
+- **SVM** - ./OpenCV/classifiers/svm_pretrain.py
+- **Gaussian Mixture Model** - ./OpenCV/classifiers/gmm_pretrain.py
+
+
+All of these models take as input in the script
+- **OUTPUT_PATH** - directory to be created, that will contain the pretrained model and final merged outputs,
+- **BANDS_TO_USE** - Bands from the original orthomosaic to be used in the classifier,
+- **INDICES_TO_USE** - Vegetation Indices from the original orthomosaic to be used in the classifier,
+
+To test the orthomosaics on the pretrained data the file __./OpenCV/classifiers/ngrvi_approach.py__ needs to be run with the appropriate parameters:
+- **model_paths** - Needs to contain the path to the model generated by the pretrainer script,
+- **ApproachArgs** - Arguments defining a single orthomosaic,
+    - **ground_truth_shp** - path to the ground truth shapefile,
+    - **orthomosaic_path** - path the orthomosaic to be tested.
+
+# Deep Learning
+
+
+# Fusion
+
+The fusion is performed in the **./qgis-plugin** directory, to make qgis recognise the plugin read the README.md file in the directory.
+
+
+
+
